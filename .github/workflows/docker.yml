@@ -1,7 +1,7 @@
 name: Docker
 
 # navigation_hub と navigation_manager のイメージを amd64 と arm64 でビルドし、docker/compose.yml で一式(mobile_sim・
-# localization_amcl・planner_dijkstra・planner_dwa は ghcr の :latest、planner の 2 つは葉にしたイメージ)を動かして
+# localization_amcl は ghcr の :latest、planner の 2 つは main からビルドして葉にしたイメージ)を動かして
 # 到着とキャンセルを確かめる。main では :edge、タグ v* では :<版> と :latest として ghcr に公開する。
 
 on:
@@ -54,7 +54,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Build planner_dijkstra and planner_dwa
+        # 葉のイメージの元(docker/leaf.Dockerfile の BASE)。ghcr のイメージが公開されていなくても試せるように、main からビルドする
+        run: |
+          for app in planner_dijkstra planner_dwa; do
+            git clone --depth 1 "https://github.com/OpenJUIZ/$app.git" "../$app"
+            docker build -f "../$app/docker/Dockerfile" -t "$app:ci" "../$app"
+          done
       - name: Test with compose
+        env:
+          # FROM で手元のイメージ(planner_*:ci)を使えるよう、docker ドライバのビルダーでビルドする
+          BUILDX_BUILDER: default
+          PLANNER_IMAGE: planner_dijkstra:ci
+          DWA_IMAGE: planner_dwa:ci
         run: |
           docker compose -f docker/compose.yml pull mobile_sim localization_amcl
           docker compose -f docker/compose.yml build planner_dijkstra planner_dwa
