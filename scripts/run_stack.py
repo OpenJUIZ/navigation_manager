@@ -69,6 +69,8 @@ class Stack:
         self.procs = []
 
     def start(self, name, cwd, conf, port, extra=()):
+        # JUIZ_APP_DIR は起動したディレクトリから見て解決されるので、絶対パスにする
+        cwd = Path(cwd).resolve()
         log = open(self.logdir / f"{name}.log", "wb")
         env = dict(os.environ, JUIZ_APP_DIR=str(cwd))
         cmd = [self.juiz, "-f", conf, "-d", *extra]
@@ -88,8 +90,12 @@ class Stack:
     def fail(self, message):
         print(f"FAILED: {message}", flush=True)
         for name, _ in self.procs:
-            tail = (self.logdir / f"{name}.log").read_text(errors="replace").splitlines()[-30:]
-            print(f"--- {name}.log (tail)\n" + "\n".join(tail))
+            # バックトレースの行(番号付きのフレームと "at ...")は省く
+            lines = [
+                ln for ln in (self.logdir / f"{name}.log").read_text(errors="replace").splitlines()
+                if not ln.strip().startswith("at ") and not ln.strip().split(":")[0].isdigit()
+            ]
+            print(f"--- {name}.log (last lines without backtraces)\n" + "\n".join(lines[-20:]))
         self.stop()
         sys.exit(1)
 
@@ -169,7 +175,7 @@ def main():
     a = ap.parse_args()
 
     juiz = os.environ.get("JUIZ") or shutil.which("juiz") or sys.exit("juiz not found (pip install juiz-cli)")
-    logdir = a.logdir or tempfile.mkdtemp(prefix="nav_stack_")
+    logdir = Path(a.logdir).resolve() if a.logdir else tempfile.mkdtemp(prefix="nav_stack_")
     Path(logdir).mkdir(parents=True, exist_ok=True)
     print(f"logs: {logdir}", flush=True)
     stack = Stack(juiz, logdir)
