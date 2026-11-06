@@ -1,0 +1,6 @@
+# planner_dijkstra を navigation_manager の下で動かすときの置き換え(scripts/make_leaf_conf.py が使う)
+# 始点は navigation_manager が出し直す推定姿勢、ゴールは navigation_manager の nav_set_goal から受ける。
+# path はそのまま出す(navigation_manager が受けて成否を見て、nav/path として planner_dwa に渡す)
+subscribes:
+  amcl_pose: nav/amcl_pose
+  goal: nav/goal
