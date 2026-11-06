@@ -1,0 +1,72 @@
+# ナビゲーション一式を Docker で動かす
+#   docker compose -f docker/compose.yml up --build
+# ブラウザで http://localhost:8005/ を開き、地図をクリックしてドラッグするとゴールを出せる。
+#
+#   navigation_hub (8006) ─┬─ localization_amcl (8002) ── mobile_sim (8000)
+#                          ├─ planner_dijkstra (8003)   葉(docker/leaf.Dockerfile)
+#                          └─ planner_dwa (8004)        葉(docker/leaf.Dockerfile)
+#   navigation_manager (8005): 各アプリを HTTP で呼ぶ
+#
+# 起動の順は各コンテナが待つ: localization_amcl は mobile_sim を、navigation_hub は 3 つの葉を、navigation_manager は全部を待つ。
+# 各アプリの別のイメージは *_IMAGE で渡す(例: MOBILE_SIM_IMAGE=mobile_sim:dev)
+services:
+  mobile_sim:
+    image: ${MOBILE_SIM_IMAGE:-ghcr.io/openjuiz/mobile_sim:latest}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+  localization_amcl:
+    image: ${AMCL_IMAGE:-ghcr.io/openjuiz/localization_amcl:latest}
+    depends_on:
+      - mobile_sim
+    environment:
+      MOBILE_SIM_URL: http://mobile_sim:8000
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+  planner_dijkstra:
+    image: navigation_leaf/planner_dijkstra
+    pull_policy: build
+    build:
+      context: ..
+      dockerfile: docker/leaf.Dockerfile
+      args:
+        APP: planner_dijkstra
+        BASE: ${PLANNER_IMAGE:-ghcr.io/openjuiz/planner_dijkstra:latest}
+    ports:
+      - "8003:8003"
+    restart: unless-stopped
+  planner_dwa:
+    image: navigation_leaf/planner_dwa
+    pull_policy: build
+    build:
+      context: ..
+      dockerfile: docker/leaf.Dockerfile
+      args:
+        APP: planner_dwa
+        BASE: ${DWA_IMAGE:-ghcr.io/openjuiz/planner_dwa:latest}
+    ports:
+      - "8004:8004"
+    restart: unless-stopped
+  navigation_hub:
+    image: ${HUB_IMAGE:-ghcr.io/openjuiz/navigation_hub:latest}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    depends_on:
+      - localization_amcl
+      - planner_dijkstra
+      - planner_dwa
+    ports:
+      - "8006:8006"
+    restart: unless-stopped
+  navigation_manager:
+    image: ${MANAGER_IMAGE:-ghcr.io/openjuiz/navigation_manager:latest}
+    build:
+      context: ..
+      dockerfile: docker/manager.Dockerfile
+    depends_on:
+      - navigation_hub
+    ports:
+      - "8005:8005"
+    restart: unless-stopped

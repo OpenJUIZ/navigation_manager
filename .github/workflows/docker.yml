@@ -1,0 +1,143 @@
+name: Docker
+
+# navigation_hub と navigation_manager のイメージを amd64 と arm64 でビルドし、docker/compose.yml で一式(mobile_sim・
+# localization_amcl・planner_dijkstra・planner_dwa は ghcr の :latest、planner の 2 つは葉にしたイメージ)を動かして
+# 到着とキャンセルを確かめる。main では :edge、タグ v* では :<版> と :latest として ghcr に公開する。
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux/amd64, os: ubuntu-24.04, arch: amd64 }
+          - { platform: linux/arm64, os: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # compose.yml の image と同じ名前にして、compose がこのイメージを使うようにする
+      - name: Build navigation_hub
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: ghcr.io/openjuiz/navigation_hub:latest
+          cache-from: type=gha,scope=hub-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=hub-${{ matrix.arch }}
+      - name: Build navigation_manager
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/manager.Dockerfile
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: ghcr.io/openjuiz/navigation_manager:latest
+          cache-from: type=gha,scope=manager-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=manager-${{ matrix.arch }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test with compose
+        run: |
+          docker compose -f docker/compose.yml pull mobile_sim localization_amcl
+          docker compose -f docker/compose.yml build planner_dijkstra planner_dwa
+          docker compose -f docker/compose.yml up -d
+          python3 -u scripts/run_stack.py --attach --test
+          # 画面が出ること
+          curl -sf -o /dev/null localhost:8005/
+      - name: Logs
+        if: always()
+        run: docker compose -f docker/compose.yml logs --no-color | tail -300
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Push navigation_hub by digest
+        id: push_hub
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/openjuiz/navigation_hub,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=hub-${{ matrix.arch }}
+      - name: Push navigation_manager by digest
+        id: push_manager
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/manager.Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/openjuiz/navigation_manager,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=manager-${{ matrix.arch }}
+      - name: Save the digests
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p /tmp/digests/navigation_hub /tmp/digests/navigation_manager
+          touch "/tmp/digests/navigation_hub/${HUB#sha256:}" "/tmp/digests/navigation_manager/${MANAGER#sha256:}"
+        env:
+          HUB: ${{ steps.push_hub.outputs.digest }}
+          MANAGER: ${{ steps.push_manager.outputs.digest }}
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests
+          retention-days: 1
+
+  publish:
+    # 2 つのアーキのイメージを 1 つのタグにまとめる
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    strategy:
+      matrix:
+        image: [navigation_hub, navigation_manager]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: /tmp/digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/openjuiz/${{ matrix.image }}
+          tags: |
+            type=edge,branch=main
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Create the manifest list
+        working-directory: /tmp/digests/${{ matrix.image }}
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/openjuiz/${{ matrix.image }}@sha256:%s ' *)

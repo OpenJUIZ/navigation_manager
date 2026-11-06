@@ -106,10 +106,25 @@ cancel: PLANNING・FOLLOWING から CANCELED
 | M1 | 計画書と骨組み | 済(#1) |
 | M2 | 葉の conf と起動スクリプト、4 アプリそろえた結合テスト | 済(#2) |
 | M3 | Python の navigation_manager に作り直す(状態機械・HTTP での指示・画面)。Rust 側は navigation_hub(中継だけ)に | 済(#3) |
-| M4 | 地図の配布(mobile_sim の地図を planner・AMCL に set_map で渡す)、局所計画・スキャン・粒子の表示 | この PR |
-| M5 | Docker(5 つ + manager の compose、amd64/arm64)、リリース(navigation_hub の .juizapp、manager の Python パッケージ) | |
+| M4 | 地図の配布(mobile_sim の地図を planner・AMCL に set_map で渡す)、局所計画・スキャン・粒子の表示 | 済(#4) |
+| M5 | Docker(5 つ + manager の compose、amd64/arm64)、リリース(navigation_hub の .juizapp、manager の Python パッケージ) | この PR |
 
-## 7. 未決事項
+## 7. Docker とリリース(M5)
+
+コンテナどうしは IPC でつながらないので、木の枝はすべて HTTP にする(木の形は同じ。HTTP でも到着とキャンセルを確かめた)。
+
+| サービス | イメージ | 起動のしかた |
+|---|---|---|
+| mobile_sim | ghcr.io/openjuiz/mobile_sim | そのまま |
+| localization_amcl | ghcr.io/openjuiz/localization_amcl | そのまま(entrypoint が mobile_sim を HTTP の subsystem にする) |
+| planner_dijkstra・planner_dwa | 元のイメージから docker/leaf.Dockerfile で作る | 元の app.conf から make_leaf_conf.py で葉の conf を作ってイメージに入れ、`juiz -f` で動かす(元の entrypoint は mobile_sim を subsystem にしてしまうため) |
+| navigation_hub | ghcr.io/openjuiz/navigation_hub(docker/Dockerfile) | docker/hub-entrypoint.py が subsystem を HTTP に置き換え、3 つの葉が応答してから起動する(根は最後) |
+| navigation_manager | ghcr.io/openjuiz/navigation_manager(docker/manager.Dockerfile) | 全部が応答するまで待ってから起動する(`--hub`) |
+
+- CI(.github/workflows/docker.yml): amd64・arm64 でイメージを作り、compose で一式を動かして `run_stack.py --attach --test`。main で :edge、タグ v* で :<版> と :latest を公開する。
+- リリース(.github/workflows/release.yml): navigation_hub の .juizapp(5 ターゲット、app/leaves も入れる)と navigation_manager の wheel・sdist。2 つは同じ版で出す。
+
+## 8. 未決事項
 
 - 地図の出どころ: まずは mobile_sim の地図で自己位置推定ナビだけにし、mapper_gmapping を使う SLAM ナビは後回し(推奨)。
-- navigation_manager の配り方: pip(`pip install ./manager`)と Docker(推奨)。juizapp には入れない。
+- navigation_manager の配り方: pip(Releases の wheel、または `pip install ./manager`)と Docker(M5)。juizapp には入れない。
