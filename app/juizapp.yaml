@@ -1,0 +1,15 @@
+# .juizapp のマニフェスト(juiz docs/spec/app-package.md §4)。languages・targets・rust・files は juiz pack が書き足す
+format: 1
+name: navigation_manager
+version: 0.1.0
+kind: app
+description: "Root of the 2D navigation stack: relays topics between localization_amcl, planner_dijkstra and planner_dwa, and runs the navigation state machine"
+license: MIT OR Apache-2.0
+homepage: https://github.com/OpenJUIZ/navigation_manager
+juiz: ">=0.2.4"
+entry: app.conf
+# juiz run は depends を subsystem として足す。mobile_sim は localization_amcl の下にあるので、ここには書かない
+# (書くと mobile_sim の master が 2 つになり、トピックが届かなくなる。experiments/m0_topic_relay)。
+# planner_dijkstra・planner_dwa は navigation_manager の下で動かす conf(juiz -f)で起動するので package を持たず、depends にも書かない
+depends:
+  localization_amcl: ">=0.1.0, <0.2"

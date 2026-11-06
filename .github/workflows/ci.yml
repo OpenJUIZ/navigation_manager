@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo build --workspace
+      - run: cargo test --workspace
+
+  smoke:
+    # juiz で app/smoke_test.conf を起動し、HTTP から Process を呼び、トピックを流して状態機械を確かめる。
+    # プラグインは C ABI なので、pip の juiz-cli(別の rustc でビルドした juiz)でそのまま読める
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install juiz
+        run: pip install "juiz-cli==$(sed -n 's/^juiz_sdk = "=\(.*\)"/\1/p' Cargo.toml)"
+      - run: scripts/dev_plugin.sh
+      - run: python3 scripts/smoke_test.py
+
+  m0-topic-relay:
+    # M0 の実験を再現する(葉どうしは届かず、manager が別名で出し直せば届く)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: experiments/m0_topic_relay/probe
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install juiz
+        run: pip install "juiz-cli==$(sed -n 's/^juiz_sdk = "=\(.*\)"/\1/p' Cargo.toml)"
+      - run: cd experiments/m0_topic_relay/probe && cargo build
+      - name: plain (amcl does not get odom)
+        run: |
+          experiments/m0_topic_relay/run.sh plain | tee plain.txt
+          grep -q "^manager .*odom x" plain.txt
+          ! grep -q "^amcl .*odom x" plain.txt
+      - name: relay (amcl gets nav/odom)
+        run: |
+          experiments/m0_topic_relay/run.sh relay | tee relay.txt
+          grep -q "^amcl .*odom x" relay.txt
