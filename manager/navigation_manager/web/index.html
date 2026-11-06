@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>navigation_manager</title>
+<style>
+  :root { --bg: #f6f6f4; --fg: #1d1d1b; --muted: #6b6b66; --line: #d9d8d3; --panel: #ffffff;
+          --truth: #2e7d32; --est: #1565c0; --path: #e65100; --goal: #c62828; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1b1a; --fg: #ecebe6; --muted: #a3a29c; --line: #3a3a37; --panel: #252523; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  header { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  h1 { font-size: 16px; margin: 0; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; padding: 16px; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  canvas { width: 100%; height: auto; display: block; cursor: crosshair; border-radius: 4px; touch-action: none; }
+  .state { font-size: 20px; font-weight: 600; }
+  .muted { color: var(--muted); }
+  button { font: inherit; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg); cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 8px 0 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .legend span { margin-right: 12px; white-space: nowrap; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+  .error { color: var(--goal); white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>navigation_manager</h1>
+  <span class="muted">地図をクリックしてドラッグすると、その向きのゴールを出します</span>
+</header>
+<main>
+  <div class="panel">
+    <canvas id="map" width="800" height="800"></canvas>
+    <div class="legend muted" style="margin-top:8px">
+      <span><i style="background:var(--truth)"></i>真の姿勢(mobile_sim)</span>
+      <span><i style="background:var(--est)"></i>推定姿勢(localization_amcl)</span>
+      <span><i style="background:var(--path)"></i>大域経路(planner_dijkstra)</span>
+      <span><i style="background:var(--goal)"></i>ゴール</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="state" id="state">-</div>
+    <div class="muted" id="message"></div>
+    <div class="row">
+      <button id="cancel">キャンセル</button>
+      <button id="init">初期位置を真の姿勢に</button>
+    </div>
+    <dl>
+      <dt>ゴールまで</dt><dd id="dist">-</dd>
+      <dt>引き直し</dt><dd id="retries">-</dd>
+      <dt>局所計画</dt><dd id="local">-</dd>
+      <dt>推定姿勢</dt><dd id="est">-</dd>
+      <dt>真の姿勢</dt><dd id="truth">-</dd>
+    </dl>
+    <div class="error" id="error"></div>
+  </div>
+</main>
+<script>
+const canvas = document.getElementById("map");
+const ctx = canvas.getContext("2d");
+const img = new Image();
+let info = null, view = null, drag = null;
+
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = p => p ? `${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.theta.toFixed(2)}` : "-";
+
+// 地図の座標(m)と canvas の画素
+function toPx(x, y) {
+  const s = canvas.width / (info.width * info.resolution);
+  return [(x - info.origin[0]) * s, canvas.height - (y - info.origin[1]) * s];
+}
+function toWorld(px, py) {
+  const s = canvas.width / (info.width * info.resolution);
+  return [px / s + info.origin[0], (canvas.height - py) / s + info.origin[1]];
+}
+function eventPx(e) {
+  const r = canvas.getBoundingClientRect();
+  return [(e.clientX - r.left) * canvas.width / r.width, (e.clientY - r.top) * canvas.height / r.height];
+}
+
+function drawPose(p, color, r = 9) {
+  if (!p) return;
+  const [x, y] = toPx(p.x, p.y);
+  ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.globalAlpha = 0.35; ctx.fill(); ctx.globalAlpha = 1; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(p.theta) * r * 2, y - Math.sin(p.theta) * r * 2); ctx.stroke();
+}
+
+function draw() {
+  if (!info) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (img.complete) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  if (view) {
+    const poses = (view.path && view.path.poses) || [];
+    if (poses.length) {
+      ctx.strokeStyle = css("--path"); ctx.lineWidth = 3; ctx.beginPath();
+      poses.forEach((q, i) => { const [x, y] = toPx(q.position.x, q.position.y); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+    }
+    drawPose(view.goal, css("--goal"), 7);
+    drawPose(view.true_pose, css("--truth"));
+    drawPose(view.pose, css("--est"));
+  }
+  if (drag) {
+    ctx.strokeStyle = css("--goal"); ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(drag.x0, drag.y0); ctx.lineTo(drag.x1, drag.y1); ctx.stroke();
+  }
+}
+
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  const v = await r.json();
+  if (!r.ok) document.getElementById("error").textContent = v.error || r.statusText;
+  return v;
+}
+
+canvas.addEventListener("pointerdown", e => { const [x, y] = eventPx(e); drag = { x0: x, y0: y, x1: x, y1: y }; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener("pointermove", e => { if (!drag) return; [drag.x1, drag.y1] = eventPx(e); draw(); });
+canvas.addEventListener("pointerup", async e => {
+  if (!drag || !info) return;
+  const [x, y] = toWorld(drag.x0, drag.y0);
+  const dx = drag.x1 - drag.x0, dy = drag.y0 - drag.y1;
+  const theta = Math.hypot(dx, dy) > 5 ? Math.atan2(dy, dx) : 0;
+  drag = null;
+  await post("/api/goal", { x, y, theta });
+});
+document.getElementById("cancel").onclick = () => post("/api/cancel");
+document.getElementById("init").onclick = () => post("/api/initial_pose");
+
+async function tick() {
+  try {
+    view = await (await fetch("/api/view")).json();
+    document.getElementById("state").textContent = view.state;
+    document.getElementById("message").textContent = view.message || "";
+    document.getElementById("dist").textContent = view.goal_distance == null ? "-" : `${view.goal_distance.toFixed(2)} m`;
+    document.getElementById("retries").textContent = view.retries;
+    document.getElementById("local").textContent = view.local ? view.local.status : "-";
+    document.getElementById("est").textContent = fmt(view.pose);
+    document.getElementById("truth").textContent = fmt(view.true_pose);
+    document.getElementById("error").textContent = view.error || "";
+    draw();
+  } catch (e) {
+    document.getElementById("error").textContent = String(e);
+  }
+}
+
+(async () => {
+  info = await (await fetch("/api/map_info")).json();
+  canvas.height = Math.round(canvas.width * info.height / info.width);
+  img.onload = draw;
+  img.src = "/api/map";
+  tick();
+  setInterval(tick, 300);
+})();
+</script>
+</body>
+</html>
