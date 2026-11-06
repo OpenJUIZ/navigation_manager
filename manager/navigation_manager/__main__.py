@@ -34,6 +34,8 @@ def main(argv=None) -> None:
     ap.add_argument("--max-planning-retries", type=int, default=p.max_planning_retries)
     ap.add_argument("--initial-pose-from-sim", action="store_true",
                     help="起動時に mobile_sim の真の姿勢を localization_amcl の初期位置にする")
+    ap.add_argument("--no-distribute-map", action="store_true",
+                    help="起動時に mobile_sim の地図を planner_dijkstra・localization_amcl に渡さない(各アプリの地図のまま)")
     ap.add_argument("--wait", type=float, default=30.0, help="各アプリが応答するまで待つ秒数")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
@@ -51,6 +53,8 @@ def main(argv=None) -> None:
             time.sleep(0.5)
     manager = Manager(Apps(urls),
                       Params(a.xy_goal_tolerance, a.yaw_goal_tolerance, a.max_planning_retries), a.rate)
+    if not a.no_distribute_map:
+        manager.distribute_map()
     if a.initial_pose_from_sim:
         p0 = manager.set_initial_pose()
         log.info("initial pose from mobile_sim: %s", p0)

@@ -63,7 +63,8 @@ juiz 0.2.4。トピックを出すだけ・受けるだけの試験用プラグ�
 | ゴール・引き直し | planner_dijkstra `planner_set_goal`(計画して経路を返す)→ planner_dwa `dwa_set_path` |
 | キャンセル・到着・失敗 | planner_dwa `dwa_cancel` |
 | 初期位置 | mobile_sim `mobile_sim_get_pose`(真の姿勢)→ localization_amcl `amcl_set_initial_pose` |
-| 画面 | mobile_sim `mobile_sim_get_map`・`mobile_sim_get_map_info`・`mobile_sim_get_pose` |
+| 起動時・画面のボタン(地図の配布) | mobile_sim `mobile_sim_get_map`・`mobile_sim_get_map_info` → planner_dijkstra `planner_set_map`・localization_amcl `amcl_set_map`(multipart の PUT。追っている途中なら先に止める) |
+| 画面 | mobile_sim `mobile_sim_get_map`・`mobile_sim_get_map_info`・`mobile_sim_get_pose`、localization_amcl `amcl_get_state`(粒子)、planner_dwa `dwa_get_state`(局所計画・障害物) |
 
 経路はトピック path を使わず、manager が planner から受けて DWA に渡す(どのゴールの経路かを manager が知っているため)。
 
@@ -86,15 +87,16 @@ cancel: PLANNING・FOLLOWING から CANCELED
 
 ## 5. 画面と API(HTTP 8005)
 
-画面: 地図(mobile_sim)、真の姿勢、推定姿勢、大域経路、ゴール。地図をクリックしてドラッグすると、その向きのゴールを出す。キャンセル、初期位置を真の姿勢に。
+画面: 地図(mobile_sim)、真の姿勢、推定姿勢、大域経路、局所計画(DWA の最良の軌道)、障害物(DWA が使うスキャン点)、粒子(AMCL)、ゴール。局所計画・障害物・粒子は表示を切り替えられる。地図をクリックしてドラッグすると、その向きのゴールを出す。キャンセル、初期位置を真の姿勢に、mobile_sim の地図を配る。
 
 | API | 内容 |
 |---|---|
-| GET /api/status・/api/view | 状態(画面用は真の姿勢と経路つき) |
+| GET /api/status・/api/view | 状態(画面用は真の姿勢・経路・局所計画・障害物・粒子つき) |
 | GET /api/map・/api/map_info | mobile_sim の地図 |
 | POST /api/goal `{x, y, theta}` | ゴール |
 | POST /api/cancel | キャンセル |
 | POST /api/initial_pose `{x, y, theta}` または空 | localization_amcl の初期位置(空なら mobile_sim の真の姿勢) |
+| POST /api/distribute_map | mobile_sim の地図を planner_dijkstra・localization_amcl に渡す(起動時にも渡す。`--no-distribute-map` で止める) |
 
 ## 6. マイルストーン
 
@@ -103,8 +105,8 @@ cancel: PLANNING・FOLLOWING から CANCELED
 | M0 | 木の中継の検証(experiments/m0_topic_relay、CI で再現) | 済(#1) |
 | M1 | 計画書と骨組み | 済(#1) |
 | M2 | 葉の conf と起動スクリプト、4 アプリそろえた結合テスト | 済(#2) |
-| M3 | Python の navigation_manager に作り直す(状態機械・HTTP での指示・画面)。Rust 側は navigation_hub(中継だけ)に | この PR |
-| M4 | 地図の配布(mobile_sim の地図を planner・AMCL に set_map で渡す)、局所計画・スキャン・粒子の表示 | |
+| M3 | Python の navigation_manager に作り直す(状態機械・HTTP での指示・画面)。Rust 側は navigation_hub(中継だけ)に | 済(#3) |
+| M4 | 地図の配布(mobile_sim の地図を planner・AMCL に set_map で渡す)、局所計画・スキャン・粒子の表示 | この PR |
 | M5 | Docker(5 つ + manager の compose、amd64/arm64)、リリース(navigation_hub の .juizapp、manager の Python パッケージ) | |
 
 ## 7. 未決事項

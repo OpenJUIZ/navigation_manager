@@ -4,12 +4,13 @@
 | --- | --- |
 | GET /                       | 画面(web/index.html) |
 | GET /api/status             | 状態(state・goal・pose・goal_distance・retries・message・local など) |
-| GET /api/view               | 画面用: 状態 + 真の姿勢 + 経路 |
+| GET /api/view               | 画面用: 状態 + 真の姿勢 + 経路 + 局所計画 + 障害物 + 粒子 |
 | GET /api/map                | mobile_sim の地図の画像 |
 | GET /api/map_info           | 地図の解像度・原点・大きさ |
 | POST /api/goal              | `{x, y, theta}` ゴールを出す |
 | POST /api/cancel            | キャンセル |
 | POST /api/initial_pose      | `{x, y, theta}`、または空で mobile_sim の真の姿勢を localization_amcl の初期位置にする |
+| POST /api/distribute_map    | mobile_sim の地図を planner_dijkstra と localization_amcl に渡す |
 """
 from __future__ import annotations
 
@@ -82,6 +83,8 @@ def make_handler(manager: Manager):
                 if self.path == "/api/initial_pose":
                     p = manager.set_initial_pose(_pose(body) if body else None)
                     return self._json({"x": p.x, "y": p.y, "theta": p.theta})
+                if self.path == "/api/distribute_map":
+                    return self._json(manager.distribute_map())
                 self._json({"error": "not found"}, 404)
             except ValueError as e:
                 self._json({"error": str(e)}, 400)
