@@ -1,0 +1,15 @@
+[package]
+name = "navigation_manager"
+description = "juiz component of navigation_manager: relays topics between the navigation apps and runs the navigation state machine."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+juiz_sdk.workspace = true
+navigation_manager_core.workspace = true
