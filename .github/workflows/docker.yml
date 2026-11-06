@@ -71,6 +71,7 @@ jobs:
           docker compose -f docker/compose.yml pull mobile_sim localization_amcl
           docker compose -f docker/compose.yml build planner_dijkstra planner_dwa
           docker compose -f docker/compose.yml up -d
+          pip install pyyaml
           python3 -u scripts/run_stack.py --attach --test
           # 画面が出ること
           curl -sf -o /dev/null localhost:8005/
