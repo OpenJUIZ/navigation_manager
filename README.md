@@ -25,14 +25,16 @@ python3 scripts/run_stack.py --mobile-sim <dir> --amcl <dir> --planner <dir> --d
 ```
 
 `<dir>` はそれぞれのアプリの app.conf があるディレクトリ(.juizapp を展開したもの、またはリポジトリの app/)。
-ブラウザで http://localhost:8005/ を開き、地図をクリックしてドラッグするとゴールを出せる。
+起動時に mobile_sim の地図を planner_dijkstra・localization_amcl に配る。
+ブラウザで http://localhost:8005/ を開き、地図をクリックしてドラッグするとゴールを出せる。局所計画・障害物・粒子も表示する。
 
 ```
 curl -X POST localhost:8005/api/goal -H 'Content-Type: application/json' -d '{"x": 0.0, "y": 1.5, "theta": 0.0}'
 curl -X POST localhost:8005/api/cancel
+curl -X POST localhost:8005/api/distribute_map     # mobile_sim の地図を配り直す
 ```
 
-`--test` を付けると、ゴールに着くまでとキャンセルで止まることを確かめて終わる(CI の e2e)。
+`--test` を付けると、地図の配布、ゴールに着くまで、表示(粒子・局所計画・障害物)、キャンセルで止まることを確かめて終わる(CI の e2e)。
 
 ## 開発
 

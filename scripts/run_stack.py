@@ -136,6 +136,12 @@ def run_test(stack, goal, timeout):
             stack.fail("amcl_pose did not reach navigation_manager")
         time.sleep(0.5)
     print("amcl_pose reached navigation_manager:", status()["pose"], flush=True)
+    if status().get("map_source") != "mobile_sim":
+        stack.fail(f"the mobile_sim map was not distributed: {status()}")
+    v = api(MANAGER, "view")
+    print(f"view: {len(v['particles'])} particles", flush=True)
+    if not v["particles"]:
+        stack.fail("the view has no particles")
 
     x, y, theta = goal
     api(MANAGER, "goal", body={"x": x, "y": y, "theta": theta}, method="POST")
@@ -170,6 +176,10 @@ def run_test(stack, goal, timeout):
             stack.fail(f"second goal was not followed: {status()}")
         time.sleep(0.2)
     time.sleep(2.0)
+    v = api(MANAGER, "view")
+    print(f"view while following: {len(v['local_plan'])} local plan points, {len(v['obstacles'])} obstacles", flush=True)
+    if not v["local_plan"] or not v["obstacles"]:
+        stack.fail("the view has no local plan or obstacles while following")
     s = api(MANAGER, "cancel", body={}, method="POST")
     if s["state"] != "canceled":
         stack.fail(f"cancel did not cancel: {s}")
@@ -182,6 +192,10 @@ def run_test(stack, goal, timeout):
     if moved > 0.05:
         stack.fail(f"the robot kept moving after cancel ({moved:.3f} m in 1 s)")
     print("end-to-end test passed", flush=True)
+
+
+def _interrupt(signum, frame):
+    raise KeyboardInterrupt
 
 
 def main():
@@ -202,6 +216,8 @@ def main():
     Path(logdir).mkdir(parents=True, exist_ok=True)
     print(f"logs: {logdir}", flush=True)
     stack = Stack(juiz, logdir)
+    # SIGTERM(docker stop や kill)でも Ctrl-C と同じく、起動したものを止めてから終わる
+    signal.signal(signal.SIGTERM, _interrupt)
     # 前に起動したものが残っていると、そちらにつないでしまうので止める
     for port in (8000, 8002, 8003, 8004, 8005, 8006):
         try:
