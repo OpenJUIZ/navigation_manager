@@ -68,3 +68,59 @@ jobs:
         run: |
           experiments/m0_topic_relay/run.sh relay | tee relay.txt
           grep -q "^amcl .*odom x" relay.txt
+
+  e2e:
+    # ナビゲーション一式を navigation_manager を根にした木の形で起動し、ゴールに着くまでを確かめる。
+    # mobile_sim・planner_dijkstra・planner_dwa は main をビルドし、localization_amcl(C++)はリリースの .juizapp を使う
+    runs-on: ubuntu-latest
+    env:
+      AMCL_VERSION: "0.1.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: OpenJUIZ/mobile_sim, path: deps/mobile_sim }
+      - uses: actions/checkout@v4
+        with: { repository: OpenJUIZ/planner_dijkstra, path: deps/planner_dijkstra }
+      # planner_dwa は private なので、読める token(secrets.DEPS_TOKEN)が要る。public にすれば無くてよい
+      - uses: actions/checkout@v4
+        with:
+          repository: OpenJUIZ/planner_dwa
+          path: deps/planner_dwa
+          token: ${{ secrets.DEPS_TOKEN || github.token }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            deps/mobile_sim
+            deps/planner_dijkstra
+            deps/planner_dwa
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install juiz
+        run: pip install pyyaml "juiz-cli==$(sed -n 's/^juiz_sdk = "=\(.*\)"/\1/p' Cargo.toml)"
+      - name: Build plugins
+        run: |
+          scripts/dev_plugin.sh
+          deps/mobile_sim/scripts/dev_plugin.sh
+          deps/planner_dijkstra/scripts/dev_plugin.sh
+          deps/planner_dwa/scripts/dev_plugin.sh
+      - name: Get localization_amcl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "v$AMCL_VERSION" -R OpenJUIZ/localization_amcl -p "*.juizapp" -D deps
+          mkdir -p deps/localization_amcl && unzip -q deps/localization_amcl-*.juizapp -d deps/localization_amcl
+      - name: End-to-end (goal -> plan -> follow -> arrive)
+        run: |
+          python3 scripts/run_stack.py --test --logdir stack_logs \
+            --mobile-sim deps/mobile_sim/app --amcl deps/localization_amcl \
+            --planner deps/planner_dijkstra/app --dwa deps/planner_dwa/app
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stack_logs
+          path: stack_logs
+          if-no-files-found: ignore

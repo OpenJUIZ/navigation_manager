@@ -7,7 +7,7 @@
 //! | Process | 引数 | 戻り値(conf の publishes で出す先) |
 //! | --- | --- | --- |
 //! | `nav_relay` | `value` | `value` をそのまま(odom → nav/odom など) |
-//! | `nav_set_goal` | `x`, `y`, `theta` | ゴールの Pose2DStamped(nav/goal) |
+//! | `nav_set_goal` | `goal`(トピック goal) | ゴールの Pose2DStamped(nav/goal) |
 //! | `nav_cancel` | なし | 0 の Twist2D(cmd_vel。止める) |
 //! | `nav_get_status` | なし | 状態(nav_status) |
 //! | `nav_on_pose` | `pose`(amcl_pose) | `pose` をそのまま(nav/amcl_pose) |
@@ -15,11 +15,14 @@
 //! | `nav_on_local_status` | `status`(dwa_status) | `status` をそのまま |
 //! | `nav_gate_cmd` | `cmd`(cmd_vel_dwa) | FOLLOWING なら `cmd`、それ以外は 0(cmd_vel) |
 //!
+//! 戻り値がトピックに出るのは、EC やトピックで動いたとき(execute)だけで、HTTP の call では出ない。
+//! そのためゴールはトピック goal に流し(HTTP なら /api/topic/push)、キャンセルは HTTP の execute で動かす。
+//!
 //! 状態機械の中身は `navigation_manager_core` にある。
 
 use juiz_sdk::anyhow::anyhow;
 use juiz_sdk::prelude::*;
-use navigation_manager_core::{json, Navigator, Params, Pose2D};
+use navigation_manager_core::{json, Navigator, Params};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use navigation_manager_core as core;
@@ -87,17 +90,14 @@ fn nav_manager(
 
 #[juiz_component_container_process(
     container_type = "nav_manager"
-    description = "Set a goal (map frame). Returns the goal as Pose2DStamped for the planner"
-    arguments = { default = { x = 0.0, y = 0.0, theta = 0.0 } }
+    description = "Set a goal (Pose2DStamped or Pose2D, map frame). Returns the goal as Pose2DStamped for the planner"
+    arguments = { default = { goal = {} } }
 )]
-fn nav_set_goal(
-    container: &mut ContainerImpl<NavManager>,
-    x: f64,
-    y: f64,
-    theta: f64,
-) -> JuizResult<Value> {
+fn nav_set_goal(container: &mut ContainerImpl<NavManager>, goal: Value) -> JuizResult<Value> {
+    let g = json::pose_from_value(&goal)
+        .ok_or_else(|| anyhow!(err(format!("goal is not a pose: {goal}"))))?;
     let t = now();
-    let g = container.nav.set_goal(Pose2D { x, y, theta }, t);
+    let g = container.nav.set_goal(g, t);
     Ok(json::pose_stamped(&g, t))
 }
 

@@ -33,6 +33,12 @@ def call(name, ptype, args=None):
     return api("container_process/call", {"identifier": ident}, args or {}, "PATCH")
 
 
+def execute(name, ptype):
+    """nav_manager0 の ContainerProcess を execute する(戻り値がトピックに出る)"""
+    ident = f"{BASE}/container_process/{name}::{ptype}:nav_manager0"
+    return api("container_process/execute", {"identifier": ident}, {}, "PATCH")
+
+
 def call_process(name, ptype, args):
     ident = f"{BASE}/process/{name}::{ptype}"
     return api("process/call", {"identifier": ident}, args, "PATCH")
@@ -94,10 +100,15 @@ def main():
         # 経路を追っていないときは速度指令を止める
         assert call("gate_cmd0", "nav_gate_cmd", {"cmd": twist(0.3, 0.1)}) == twist(0.0, 0.0)
 
-        g = call("set_goal0", "nav_set_goal", {"x": 1.0, "y": 2.0, "theta": 0.0})
+        # ゴールは call でも渡せる(戻り値は nav/goal に出す Pose2DStamped)
+        g = call("set_goal0", "nav_set_goal", {"goal": pose(1.0, 2.0)})
         assert g["pose"] == {"position": {"x": 1.0, "y": 2.0}, "theta": 0.0}, g
         assert g["header"]["frame_id"] == "map"
         wait_state("planning")
+        # ふだんはトピック goal に流す
+        push("goal", pose(1.0, 2.0))
+        s = wait_state("planning")
+        assert s["goal_seq"] == 2 and s["goal"] == {"x": 1.0, "y": 2.0, "theta": 0.0}, s
 
         # トピック path(planner_dijkstra の出力)を流すと FOLLOWING
         push("path", {"ok": True, "message": "", "poses": []})
@@ -120,10 +131,11 @@ def main():
         assert call("gate_cmd0", "nav_gate_cmd", {"cmd": twist(0.3, 0.1)}) == twist(0.0, 0.0)
 
         # キャンセル
-        call("set_goal0", "nav_set_goal", {"x": 3.0, "y": 0.0, "theta": 0.0})
+        push("goal", pose(3.0, 0.0))
         wait_state("planning")
-        assert call("cancel0", "nav_cancel") == twist(0.0, 0.0)
+        execute("cancel0", "nav_cancel")
         wait_state("canceled")
+        assert call("cancel0", "nav_cancel") == twist(0.0, 0.0)
         print("smoke test passed")
     finally:
         proc.terminate()

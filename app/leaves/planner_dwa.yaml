@@ -1,0 +1,15 @@
+# planner_dwa を navigation_manager の下で動かすときの置き換え(scripts/make_leaf_conf.py が使う)
+# センサー・推定姿勢・大域経路は navigation_manager が nav/... で出し直したものを受ける。
+# 速度指令は cmd_vel_dwa に出し、navigation_manager が経路を追っている間だけ cmd_vel に通す
+subscribes:
+  path: nav/path
+  amcl_pose: nav/amcl_pose
+  odom: nav/odom
+  scan: nav/scan
+  lidar_mount: nav/lidar_mount
+publishes:
+  cmd_vel: cmd_vel_dwa
+container_args:
+  dwa0:
+    # 画面用に AMCL・planner を HTTP で読みに行く仕組み。葉では使わない
+    bridge: null

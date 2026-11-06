@@ -25,6 +25,16 @@ pip install juiz-cli==0.2.4
 python3 scripts/smoke_test.py    # app/smoke_test.conf を起動して HTTP から確かめる
 ```
 
+## 一式を動かす
+
+```
+python3 scripts/run_stack.py --mobile-sim <dir> --amcl <dir> --planner <dir> --dwa <dir>
+curl -X PATCH 'localhost:8005/api/topic/push?topic_name=goal' -H 'Content-Type: application/json' \
+  -d '{"input": {"header": {"stamp": {"sec": 0, "nanosec": 0}, "frame_id": "map"}, "pose": {"position": {"x": 0.0, "y": 1.5}, "theta": 0.0}}}'
+```
+
+`<dir>` はそれぞれのアプリの app.conf があるディレクトリ(.juizapp を展開したもの、またはリポジトリの app/)。
+
 ## ライセンス
 
 MIT OR Apache-2.0

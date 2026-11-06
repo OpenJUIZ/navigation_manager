@@ -45,6 +45,7 @@ juiz 0.2.4。トピックを出すだけ・受けるだけの試験用プラグ�
 | `nav/odom`・`nav/scan`・`nav/lidar_mount` | manager | planner_dwa | |
 | amcl_pose | localization_amcl | manager | `nav_on_pose`(到着の判定)→ `nav/amcl_pose` |
 | `nav/amcl_pose` | manager | planner_dijkstra(始点)、planner_dwa | |
+| goal | 画面・他のアプリ・HTTP の topic/push | manager | `nav_set_goal` → `nav/goal` |
 | `nav/goal` | manager(`nav_set_goal`) | planner_dijkstra | |
 | path | planner_dijkstra | manager | `nav_on_path`(成否)→ `nav/path` |
 | `nav/path` | manager | planner_dwa | |
@@ -54,6 +55,22 @@ juiz 0.2.4。トピックを出すだけ・受けるだけの試験用プラグ�
 | nav_status | manager(`nav_get_status`、2 Hz) | UI など | |
 
 値はすべて JSON(`Value`)のまま受け渡すので、juiz の型の検査はかからない。
+
+Process の戻り値がトピックに出るのは、EC やトピックで動いたとき(execute)だけで、HTTP の `call` では出ない。
+そのためゴールはトピック goal に流す(HTTP なら `/api/topic/push?topic_name=goal`)。キャンセルは `/api/container_process/execute` で動かす。
+
+## 3.1 起動(scripts/run_stack.py)
+
+葉を先に、根を最後に起動する。planner_dijkstra・planner_dwa は、それぞれの app.conf から `scripts/make_leaf_conf.py` で葉の conf を作り
+(置き換えの表は `app/leaves/<アプリ名>.yaml`)、`juiz -f` で起動する。アプリの版が上がっても、表だけ見直せばよい。
+
+```
+python3 scripts/run_stack.py --mobile-sim <dir> --amcl <dir> --planner <dir> --dwa <dir> [--test]
+```
+
+`--test` はゴール (0.0, 1.5, 0) を出し、SUCCEEDED になって mobile_sim の真の姿勢がゴールから 0.5 m 以内にあることを確かめる(CI の e2e)。
+地図は、今は 3 つとも同じ既定の地図(mobile_sim の assets/maps/default.yaml と同じもの)を自分で読んでいる。
+実行中に地図を替えたときに配る仕組み(mobile_sim の get_map・get_map_info → planner_set_map・amcl_set_map)は M4 の UI と一緒に作る。
 
 ## 4. 状態機械(crates/navigation_manager_core)
 
@@ -87,10 +104,10 @@ juiz の Process は、戻り値を必ず publish する(Err を返すと publis
 | | 内容 | 状態 |
 |---|---|---|
 | M0 | 木の中継の検証(experiments/m0_topic_relay、CI で再現) | 済 |
-| M1 | 計画書、Rust の骨組み(core の状態機械 + juiz の component)、app.conf、juizapp.yaml、CI(check・smoke・M0) | この PR |
-| M2 | planner_dijkstra・planner_dwa の葉の conf(app/leaves/)と起動スクリプト、4 アプリそろえた結合テスト(ゴールに着く)、地図の配布 | |
+| M1 | 計画書、Rust の骨組み(core の状態機械 + juiz の component)、app.conf、juizapp.yaml、CI(check・smoke・M0) | 済(#1) |
+| M2 | planner_dijkstra・planner_dwa の葉の conf(app/leaves/)と起動スクリプト、4 アプリそろえた結合テスト(ゴールに着く) | この PR |
 | M3 | 状態機械の仕上げ(引き直しのゴールの出し方、初期位置、自己位置の喪失) | |
-| M4 | 統合 UI(HTTP 8005: 地図・真の姿勢・推定姿勢・大域経路・局所経路・スキャン、ゴール指定、キャンセル、状態) | |
+| M4 | 地図の配布、統合 UI(HTTP 8005: 地図・真の姿勢・推定姿勢・大域経路・局所経路・スキャン、ゴール指定、キャンセル、状態) | |
 | M5 | Docker(5 つまとめた compose、amd64/arm64)、リリース(.juizapp) | |
 
 ## 6. 未決事項
