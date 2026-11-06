@@ -40,3 +40,14 @@ manager  amcl_pose x7 odom x7 path x7   manager  amcl_pose x7 odom x7 path x7
 - manager を先に起動すると、葉につながらず起動に失敗する。
 
 → navigation_manager は、葉どうしのトピックを自分で受けて別名(`nav/...`)で出し直す方式にする。
+
+## 追加の確認: mobile_sim の master は 1 つにする
+
+`juiz run` は juizapp.yaml の depends にあるアプリを自動で subsystem に足す(juiz docs/spec/app-package.md §10.2)。
+AMCL・planner_dijkstra・planner_dwa はどれも mobile_sim に depends を持つので、そのままだと mobile_sim に master が複数できる。
+conf を手で書き換えて確かめた結果(run.sh には入れていない)。
+
+| 形 | 結果 |
+|---|---|
+| manager → 4 つ全部、さらに amcl → sim(sim の master が 2 つ) | amcl には odom が届くが、manager には何も届かず、goal も出ていかない |
+| manager → {amcl → sim, planner, dwa} | amcl と manager の両方に odom が届く。manager が出した cmd_vel も amcl を通って sim に届く(2 段下り) |
