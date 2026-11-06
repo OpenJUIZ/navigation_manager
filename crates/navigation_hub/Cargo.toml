@@ -1,6 +1,6 @@
 [package]
-name = "navigation_manager"
-description = "juiz component of navigation_manager: relays topics between the navigation apps and runs the navigation state machine."
+name = "navigation_hub"
+description = "juiz component of navigation_hub: republishes topics between the navigation apps under other names."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,4 +12,3 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 juiz_sdk.workspace = true
-navigation_manager_core.workspace = true

@@ -597,19 +597,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
-name = "navigation_manager"
-version = "0.1.0"
+name = "navigation_hub"
+version = "0.2.0"
 dependencies = [
  "juiz_sdk",
- "navigation_manager_core",
-]
-
-[[package]]
-name = "navigation_manager_core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]

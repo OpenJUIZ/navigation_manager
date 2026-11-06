@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""ナビゲーション一式(mobile_sim・localization_amcl・planner_dijkstra・planner_dwa・navigation_manager)を
-navigation_manager を根にした木の形で起動する。--test を付けると、ゴールを出して着くまでを確かめて止める。
+"""ナビゲーション一式(mobile_sim・localization_amcl・planner_dijkstra・planner_dwa・navigation_hub)を
+navigation_hub を根にした木の形で起動し、その後に Python の navigation_manager(HTTP 8005、画面つき)を起動する。
+--test を付けると、ゴールを出して着くまでを確かめて止める。
 
-    navigation_manager (8005) ─┬─ localization_amcl (8002) ── mobile_sim (8000)
-                               ├─ planner_dijkstra (8003)
-                               └─ planner_dwa (8004)
+    navigation_hub (8006) ─┬─ localization_amcl (8002) ── mobile_sim (8000)
+                           ├─ planner_dijkstra (8003)
+                           └─ planner_dwa (8004)
+    navigation_manager (8005, Python): 各アプリを HTTP で呼んでゴール・引き直し・キャンセル・初期位置を受け持つ
 
 使い方:
   python3 scripts/run_stack.py --mobile-sim <dir> --amcl <dir> --planner <dir> --dwa <dir> [--test]
@@ -68,19 +70,22 @@ class Stack:
         self.logdir = Path(logdir)
         self.procs = []
 
-    def start(self, name, cwd, conf, port, extra=()):
+    def start(self, name, cwd, conf, port, extra=(), cmd=None):
         # JUIZ_APP_DIR は起動したディレクトリから見て解決されるので、絶対パスにする
         cwd = Path(cwd).resolve()
         log = open(self.logdir / f"{name}.log", "wb")
         env = dict(os.environ, JUIZ_APP_DIR=str(cwd))
-        cmd = [self.juiz, "-f", conf, "-d", *extra]
+        if cmd is None:
+            cmd = [self.juiz, "-f", conf, "-d", *extra]
+        else:
+            env["PYTHONPATH"] = str(ROOT / "manager") + os.pathsep + env.get("PYTHONPATH", "")
         p = subprocess.Popen(cmd, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
         self.procs.append((name, p))
         for _ in range(150):
             if p.poll() is not None:
                 self.fail(f"{name} exited")
             try:
-                api(f"http://localhost:{port}", "container/list", timeout=1)
+                api(f"http://localhost:{port}", "container/list" if cmd[0] == self.juiz else "status", timeout=1)
                 print(f"started {name} (:{port})", flush=True)
                 return
             except OSError:
@@ -119,7 +124,7 @@ def leaf_conf(app_dir):
 
 
 def status():
-    return call(MANAGER, "get_status0", "nav_get_status", "nav_manager0")
+    return api(MANAGER, "status")
 
 
 def run_test(stack, goal, timeout):
@@ -133,9 +138,7 @@ def run_test(stack, goal, timeout):
     print("amcl_pose reached navigation_manager:", status()["pose"], flush=True)
 
     x, y, theta = goal
-    # トピック goal に流す(HTTP の call では戻り値が nav/goal に出ないため)
-    push(MANAGER, "goal", {"header": {"stamp": {"sec": 0, "nanosec": 0}, "frame_id": "map"},
-                           "pose": {"position": {"x": x, "y": y}, "theta": theta}})
+    api(MANAGER, "goal", body={"x": x, "y": y, "theta": theta}, method="POST")
     print(f"goal ({x}, {y}, {theta})", flush=True)
     end = time.time() + timeout
     last = None
@@ -158,6 +161,26 @@ def run_test(stack, goal, timeout):
     print(f"true pose {truth} ({d:.2f} m from the goal)", flush=True)
     if d > 0.5:
         stack.fail(f"the robot is {d:.2f} m from the goal")
+
+    # 2 つ目のゴールを出して、追っている途中でキャンセルすると止まる
+    api(MANAGER, "goal", body={"x": -2.0, "y": -2.0, "theta": 0.0}, method="POST")
+    end = time.time() + 20
+    while status()["state"] != "following":
+        if time.time() > end:
+            stack.fail(f"second goal was not followed: {status()}")
+        time.sleep(0.2)
+    time.sleep(2.0)
+    s = api(MANAGER, "cancel", body={}, method="POST")
+    if s["state"] != "canceled":
+        stack.fail(f"cancel did not cancel: {s}")
+    time.sleep(1.0)  # 減速を待つ
+    a = call(SIM, "get_pose0", "mobile_sim_get_pose", "sim0", {"index": 0})["pose"]["position"]
+    time.sleep(1.0)
+    b = call(SIM, "get_pose0", "mobile_sim_get_pose", "sim0", {"index": 0})["pose"]["position"]
+    moved = math.hypot(a["x"] - b["x"], a["y"] - b["y"])
+    print(f"canceled; moved {moved:.3f} m in 1 s after stopping", flush=True)
+    if moved > 0.05:
+        stack.fail(f"the robot kept moving after cancel ({moved:.3f} m in 1 s)")
     print("end-to-end test passed", flush=True)
 
 
@@ -167,7 +190,7 @@ def main():
     ap.add_argument("--amcl", required=True)
     ap.add_argument("--planner", required=True)
     ap.add_argument("--dwa", required=True)
-    ap.add_argument("--manager", default=str(ROOT / "app"))
+    ap.add_argument("--hub", default=str(ROOT / "app"), help="navigation_hub の app.conf があるディレクトリ")
     ap.add_argument("--test", action="store_true", help="ゴールを出して着くまでを確かめて止める")
     ap.add_argument("--goal", default="0.0,1.5,0.0", help="x,y,theta(map 座標系、--test で使う)")
     ap.add_argument("--timeout", type=float, default=120.0)
@@ -179,13 +202,24 @@ def main():
     Path(logdir).mkdir(parents=True, exist_ok=True)
     print(f"logs: {logdir}", flush=True)
     stack = Stack(juiz, logdir)
+    # 前に起動したものが残っていると、そちらにつないでしまうので止める
+    for port in (8000, 8002, 8003, 8004, 8005, 8006):
+        try:
+            urllib.request.urlopen(f"http://localhost:{port}/", timeout=0.5)
+        except urllib.error.HTTPError:
+            sys.exit(f"port {port} is already in use. Stop the running apps first")
+        except OSError:
+            continue
+        sys.exit(f"port {port} is already in use. Stop the running apps first")
     try:
         # mobile_sim は基礎(kind: base)。juiz run と同じく IPC 名 mobile_sim を持たせる
         stack.start("mobile_sim", a.mobile_sim, "app.conf", 8000, ["--ipc", "mobile_sim"])
         stack.start("localization_amcl", a.amcl, "app.conf", 8002)
         stack.start("planner_dijkstra", a.planner, leaf_conf(a.planner), 8003)
         stack.start("planner_dwa", a.dwa, leaf_conf(a.dwa), 8004)
-        stack.start("navigation_manager", a.manager, "app.conf", 8005)
+        stack.start("navigation_hub", a.hub, "app.conf", 8006)
+        stack.start("navigation_manager", ROOT, None, 8005,
+                    cmd=[sys.executable, "-m", "navigation_manager", "--port", "8005"])
         if a.test:
             run_test(stack, tuple(float(v) for v in a.goal.split(",")), a.timeout)
         else:

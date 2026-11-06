@@ -6,15 +6,15 @@ cd "$(dirname "$0")/.."
 profile=debug
 if [ "${1:-}" = "--release" ]; then
   profile=release
-  cargo build -p navigation_manager --release
+  cargo build -p navigation_hub --release
 else
-  cargo build -p navigation_manager
+  cargo build -p navigation_hub
 fi
 target=$(rustc -vV | sed -n 's/^host: //p')
 case "$target" in
-  *apple-darwin) lib=libnavigation_manager.dylib ;;
-  *windows*) lib=navigation_manager.dll ;;
-  *) lib=libnavigation_manager.so ;;
+  *apple-darwin) lib=libnavigation_hub.dylib ;;
+  *windows*) lib=navigation_hub.dll ;;
+  *) lib=libnavigation_hub.so ;;
 esac
 mkdir -p "app/plugins/$target"
 cp "target/$profile/$lib" "app/plugins/$target/"

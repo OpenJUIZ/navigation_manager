@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "navigation-manager"
+version = "0.2.0"
+description = "Navigation manager for the JUIZ 2D navigation stack: goal -> plan -> follow -> arrive over HTTP, with a browser UI"
+readme = "README.md"
+license = { text = "MIT OR Apache-2.0" }
+requires-python = ">=3.9"
+# 標準ライブラリだけで動く
+dependencies = []
+
+[project.scripts]
+navigation-manager = "navigation_manager.__main__:main"
+
+[tool.setuptools]
+packages = ["navigation_manager"]
+
+[tool.setuptools.package-data]
+navigation_manager = ["web/*"]

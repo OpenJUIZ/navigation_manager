@@ -1,6 +1,7 @@
-# planner_dwa を navigation_manager の下で動かすときの置き換え(scripts/make_leaf_conf.py が使う)
-# センサー・推定姿勢・大域経路は navigation_manager が nav/... で出し直したものを受ける。
-# 速度指令は cmd_vel_dwa に出し、navigation_manager が経路を追っている間だけ cmd_vel に通す
+# planner_dwa を navigation_hub の下で動かすときの置き換え(scripts/make_leaf_conf.py が使う)
+# センサー・推定姿勢は navigation_hub が nav/... で出し直したものを受ける。
+# 大域経路は Python の navigation_manager が dwa_set_path を HTTP で呼んで渡す(トピック path は使わない)。
+# 速度指令は cmd_vel_dwa に出し、navigation_hub が cmd_vel として mobile_sim に渡す
 subscribes:
   path: nav/path
   amcl_pose: nav/amcl_pose

@@ -28,8 +28,19 @@ jobs:
       - run: cargo build --workspace
       - run: cargo test --workspace
 
+  manager:
+    # Python の navigation_manager(標準ライブラリだけ)の単体テスト
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: cd manager && python -m unittest discover -s tests -v
+      - run: python -m compileall -q manager scripts
+
   smoke:
-    # juiz で app/smoke_test.conf を起動し、HTTP から Process を呼び、トピックを流して状態機械を確かめる。
+    # juiz で app/smoke_test.conf を起動し、navigation_hub のプラグインを読み込んで nav_relay を HTTP から呼ぶ。
     # プラグインは C ABI なので、pip の juiz-cli(別の rustc でビルドした juiz)でそのまま読める
     runs-on: ubuntu-latest
     steps:
@@ -70,7 +81,8 @@ jobs:
           grep -q "^amcl .*odom x" relay.txt
 
   e2e:
-    # ナビゲーション一式を navigation_manager を根にした木の形で起動し、ゴールに着くまでを確かめる。
+    # ナビゲーション一式を navigation_hub を根にした木の形で起動し、Python の navigation_manager からゴールを出して
+    # 着くまでと、キャンセルで止まることを確かめる。
     # mobile_sim・planner_dijkstra・planner_dwa は main をビルドし、localization_amcl(C++)はリリースの .juizapp を使う
     runs-on: ubuntu-latest
     env:
