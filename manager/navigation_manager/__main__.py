@@ -1,6 +1,6 @@
 """navigation_manager を起動する。
 
-    python3 -m navigation_manager [--port 8005] [--sim URL] [--amcl URL] [--planner URL] [--dwa URL]
+    python3 -m navigation_manager [--port 8005] [--sim URL] [--amcl URL] [--planner URL] [--dwa URL] [--hub URL]
 
 先にナビゲーション一式(mobile_sim・localization_amcl・planner_dijkstra・planner_dwa・navigation_hub)を
 起動しておく(scripts/run_stack.py)。ブラウザで http://localhost:8005/ を開く。
@@ -28,6 +28,8 @@ def main(argv=None) -> None:
     ap.add_argument("--amcl", default=d.amcl, help="localization_amcl の URL")
     ap.add_argument("--planner", default=d.planner, help="planner_dijkstra の URL")
     ap.add_argument("--dwa", default=d.dwa, help="planner_dwa の URL")
+    ap.add_argument("--hub", default=None,
+                    help="navigation_hub の URL。渡すとそれも応答するまで待つ(Docker で一式と同時に起動するとき)")
     ap.add_argument("--rate", type=float, default=5.0, help="周期処理の周波数 [Hz]")
     ap.add_argument("--xy-goal-tolerance", type=float, default=p.xy_goal_tolerance)
     ap.add_argument("--yaw-goal-tolerance", type=float, default=p.yaw_goal_tolerance)
@@ -45,8 +47,10 @@ def main(argv=None) -> None:
 
     urls = Urls(a.sim, a.amcl, a.planner, a.dwa)
     end = time.time() + a.wait
-    for name in ("sim", "amcl", "planner", "dwa"):
-        url = getattr(urls, name)
+    waits = [(name, getattr(urls, name)) for name in ("sim", "amcl", "planner", "dwa")]
+    if a.hub:
+        waits.append(("hub", a.hub))
+    for name, url in waits:
         while not ready(url):
             if time.time() > end:
                 raise SystemExit(f"{name} is not running at {url}")

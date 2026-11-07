@@ -2,3 +2,4 @@ target/
 /dist/
 app/plugins/
 __pycache__/
+.docker.conf

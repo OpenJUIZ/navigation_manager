@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """app/smoke_test.conf を juiz で起動し、navigation_hub のプラグインを読み込めて nav_relay を HTTP から呼べることを確かめる。
 
-使い方: python3 scripts/smoke_test.py   (先に scripts/dev_plugin.sh。juiz は環境変数 JUIZ で別のものを指定できる)
+使い方: python3 scripts/smoke_test.py [--app-dir <dir>]   (先に scripts/dev_plugin.sh。juiz は環境変数 JUIZ で別のものを指定できる)
+--app-dir には smoke_test.conf と plugins/ があるディレクトリ(.juizapp を展開したものなど)を渡せる。既定は app/
 """
 import json
 import os
@@ -30,7 +31,8 @@ def api(path, query=None, body=None, method="GET"):
 def main():
     juiz = os.environ.get("JUIZ", "juiz")
     log = tempfile.TemporaryFile()
-    proc = subprocess.Popen([juiz, "-f", "smoke_test.conf", "-d"], cwd=ROOT / "app", stdout=log, stderr=subprocess.STDOUT)
+    app_dir = Path(sys.argv[2]).resolve() if len(sys.argv) == 3 and sys.argv[1] == "--app-dir" else ROOT / "app"
+    proc = subprocess.Popen([juiz, "-f", "smoke_test.conf", "-d"], cwd=app_dir, stdout=log, stderr=subprocess.STDOUT)
     try:
         for _ in range(150):
             if proc.poll() is not None:

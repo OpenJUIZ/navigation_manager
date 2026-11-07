@@ -36,6 +36,21 @@ curl -X POST localhost:8005/api/distribute_map     # mobile_sim の地図を配�
 
 `--test` を付けると、地図の配布、ゴールに着くまで、表示(粒子・局所計画・障害物)、キャンセルで止まることを確かめて終わる(CI の e2e)。
 
+## Docker で動かす
+
+```
+docker compose -f docker/compose.yml up --build
+```
+
+http://localhost:8005/ を開く。mobile_sim・localization_amcl は ghcr のイメージをそのまま、planner_dijkstra・planner_dwa は
+ghcr のイメージから葉の conf を入れたイメージを作って使う(docker/leaf.Dockerfile)。navigation_hub と navigation_manager のイメージは
+ghcr.io/openjuiz/navigation_hub・ghcr.io/openjuiz/navigation_manager(amd64/arm64)。
+
+## リリース
+
+タグ v* で、navigation_hub の .juizapp と navigation_manager の Python パッケージ(wheel・sdist)を Releases に、
+イメージを ghcr に出す。版は app/juizapp.yaml と manager/pyproject.toml で揃える。
+
 ## 開発
 
 ```

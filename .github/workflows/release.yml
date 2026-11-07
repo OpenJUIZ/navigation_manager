@@ -1,0 +1,120 @@
+name: Release
+
+# navigation_hub のプラグインをターゲットごとにビルドして .juizapp にまとめ、navigation_manager の Python パッケージ
+# (wheel と sdist)を作る。タグ v* では Releases に載せる。
+# プラグインは C ABI なので、rustc の版は問わない。juiz の版は Cargo.toml の juiz_sdk から決める。
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    outputs:
+      juiz: ${{ steps.v.outputs.juiz }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          juiz=$(sed -n 's/^juiz_sdk = "=\(.*\)"/\1/p' Cargo.toml)
+          echo "juiz $juiz"
+          echo "juiz=$juiz" >> "$GITHUB_OUTPUT"
+          grep -qx "juiz: \">=$juiz\"" app/juizapp.yaml || { echo "app/juizapp.yaml の juiz を \">=$juiz\" にしてください"; exit 1; }
+          # navigation_hub と navigation_manager は同じ版で出す
+          hub=$(sed -n 's/^version: //p' app/juizapp.yaml)
+          manager=$(sed -n 's/^version = "\(.*\)"/\1/p' manager/pyproject.toml)
+          [ "$hub" = "$manager" ] || { echo "app/juizapp.yaml $hub != manager/pyproject.toml $manager"; exit 1; }
+      - name: Check the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(sed -n 's/^version: //p' app/juizapp.yaml)
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != app/juizapp.yaml version $version"; exit 1; }
+
+  plugin:
+    needs: versions
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux は古めの glibc でビルドする(新しい glibc にしか無い記号を使わないように)
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04, lib: libnavigation_hub.so }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm, lib: libnavigation_hub.so }
+          - { target: x86_64-apple-darwin, os: macos-15, lib: libnavigation_hub.dylib }
+          - { target: aarch64-apple-darwin, os: macos-15, lib: libnavigation_hub.dylib }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, lib: navigation_hub.dll }
+    runs-on: ${{ matrix.os }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build -p navigation_hub --release --target ${{ matrix.target }}
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p "plugins/${{ matrix.target }}"
+          cp "target/${{ matrix.target }}/release/${{ matrix.lib }}" "plugins/${{ matrix.target }}/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-${{ matrix.target }}
+          path: plugins
+
+  pack:
+    needs: [versions, plugin]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: plugin-*
+          path: plugins
+          merge-multiple: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build "juiz-cli==${{ needs.versions.outputs.juiz }}"
+      - run: scripts/pack.sh plugins dist
+      - name: Build the Python package
+        run: python -m build manager --outdir dist
+      - name: Check the packages
+        # .juizapp は配布先と同じく pip の juiz-cli で読めること(smoke_test と同じ relay を呼ぶ)、wheel は入れて起動できること
+        run: |
+          mkdir -p /tmp/hub && unzip -q dist/navigation_hub-*.juizapp -d /tmp/hub
+          cp app/smoke_test.conf /tmp/hub/
+          python3 scripts/smoke_test.py --app-dir /tmp/hub
+          python -m venv /tmp/venv && /tmp/venv/bin/pip install dist/navigation_manager-*.whl
+          /tmp/venv/bin/navigation-manager --help > /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: dist/*
+      - name: Publish to Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # GitHub の画面で Release を作ってタグを打ったときは、その Release にファイルを足す
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes \
+              --notes "Docker: \`docker compose -f docker/compose.yml up --build\` の後、http://localhost:8005/ を開く。手元で動かすときは README を見てください(juiz ${{ needs.versions.outputs.juiz }})"
+          fi

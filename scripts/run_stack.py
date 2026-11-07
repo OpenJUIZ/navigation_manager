@@ -10,6 +10,7 @@ navigation_hub を根にした木の形で起動し、その後に Python の na
 
 使い方:
   python3 scripts/run_stack.py --mobile-sim <dir> --amcl <dir> --planner <dir> --dwa <dir> [--test]
+  python3 scripts/run_stack.py --attach --test      # docker compose などで動いている一式を確かめる
 
 <dir> はそれぞれのアプリの app.conf があるディレクトリ(.juizapp を展開したもの、または開発中のリポジトリの app/)。
 planner_dijkstra・planner_dwa は scripts/make_leaf_conf.py で葉の conf(leaf.conf)を作って、そのディレクトリで juiz -f で起動する
@@ -200,16 +201,36 @@ def _interrupt(signum, frame):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--mobile-sim", required=True)
-    ap.add_argument("--amcl", required=True)
-    ap.add_argument("--planner", required=True)
-    ap.add_argument("--dwa", required=True)
+    ap.add_argument("--mobile-sim")
+    ap.add_argument("--amcl")
+    ap.add_argument("--planner")
+    ap.add_argument("--dwa")
     ap.add_argument("--hub", default=str(ROOT / "app"), help="navigation_hub の app.conf があるディレクトリ")
     ap.add_argument("--test", action="store_true", help="ゴールを出して着くまでを確かめて止める")
     ap.add_argument("--goal", default="0.0,1.5,0.0", help="x,y,theta(map 座標系、--test で使う)")
     ap.add_argument("--timeout", type=float, default=120.0)
     ap.add_argument("--logdir", default=None)
+    ap.add_argument("--attach", action="store_true",
+                    help="起動せず、もう動いている一式(docker compose など)に --test を走らせる")
     a = ap.parse_args()
+    if a.attach:
+        if not a.test:
+            ap.error("--attach needs --test")
+        end = time.time() + 180
+        while True:
+            try:
+                status()
+                break
+            except OSError:
+                if time.time() > end:
+                    sys.exit(f"navigation_manager did not answer at {MANAGER}")
+                time.sleep(1.0)
+        run_test(Stack(None, tempfile.mkdtemp(prefix="nav_attach_")), tuple(float(v) for v in a.goal.split(",")),
+                 a.timeout)
+        return
+    missing = [k for k in ("mobile_sim", "amcl", "planner", "dwa") if getattr(a, k) is None]
+    if missing:
+        ap.error("need " + ", ".join("--" + k.replace("_", "-") for k in missing))
 
     juiz = os.environ.get("JUIZ") or shutil.which("juiz") or sys.exit("juiz not found (pip install juiz-cli)")
     logdir = Path(a.logdir).resolve() if a.logdir else tempfile.mkdtemp(prefix="nav_stack_")
