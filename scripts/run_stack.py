@@ -9,9 +9,10 @@ navigation_hub を根にした木の形で起動し、その後に Python の na
     navigation_manager (8005, Python): 各アプリを HTTP で呼んでゴール・引き直し・キャンセル・初期位置を受け持つ
 
 使い方:
-  python3 scripts/run_stack.py --mobile-sim <dir> --amcl <dir> --planner <dir> --dwa <dir> [--test]
+  python3 scripts/run_stack.py --mobile-sim <dir> --amcl <dir> --planner <dir> --dwa <dir> [--map map.yaml] [--test]
   python3 scripts/run_stack.py --attach --test      # docker compose などで動いている一式を確かめる
 
+--map を付けると、mobile_sim の地図の代わりにその地図(SLAM で作ったものなど)を planner_dijkstra・localization_amcl に配る。
 <dir> はそれぞれのアプリの app.conf があるディレクトリ(.juizapp を展開したもの、または開発中のリポジトリの app/)。
 planner_dijkstra・planner_dwa は scripts/make_leaf_conf.py で葉の conf(leaf.conf)を作って、そのディレクトリで juiz -f で起動する
 (juiz run は depends の mobile_sim を subsystem に足してしまい、mobile_sim の master が 2 つになるため)。
@@ -128,7 +129,7 @@ def status():
     return api(MANAGER, "status")
 
 
-def run_test(stack, goal, timeout):
+def run_test(stack, goal, timeout, map_source="mobile_sim"):
     """ゴールを出して、navigation_manager が SUCCEEDED になり、mobile_sim の真の姿勢がゴールの近くにあることを確かめる"""
     # 自己位置推定が落ち着くまで待つ(amcl_pose が navigation_manager に届くこと)
     end = time.time() + 30
@@ -137,8 +138,11 @@ def run_test(stack, goal, timeout):
             stack.fail("amcl_pose did not reach navigation_manager")
         time.sleep(0.5)
     print("amcl_pose reached navigation_manager:", status()["pose"], flush=True)
-    if status().get("map_source") != "mobile_sim":
-        stack.fail(f"the mobile_sim map was not distributed: {status()}")
+    if status().get("map_source") != map_source:
+        stack.fail(f"the {map_source} map was not distributed: {status()}")
+    info = api(MANAGER, "map_info")
+    print(f"map: {map_source} ({info['width']}x{info['height']}, {info['resolution']} m/px, origin {info['origin']})",
+          flush=True)
     v = api(MANAGER, "view")
     print(f"view: {len(v['particles'])} particles", flush=True)
     if not v["particles"]:
@@ -206,6 +210,7 @@ def main():
     ap.add_argument("--planner")
     ap.add_argument("--dwa")
     ap.add_argument("--hub", default=str(ROOT / "app"), help="navigation_hub の app.conf があるディレクトリ")
+    ap.add_argument("--map", help="配る地図の YAML(navigation_manager の --map)。省くと mobile_sim の地図")
     ap.add_argument("--test", action="store_true", help="ゴールを出して着くまでを確かめて止める")
     ap.add_argument("--goal", default="0.0,1.5,0.0", help="x,y,theta(map 座標系、--test で使う)")
     ap.add_argument("--timeout", type=float, default=120.0)
@@ -226,7 +231,7 @@ def main():
                     sys.exit(f"navigation_manager did not answer at {MANAGER}")
                 time.sleep(1.0)
         run_test(Stack(None, tempfile.mkdtemp(prefix="nav_attach_")), tuple(float(v) for v in a.goal.split(",")),
-                 a.timeout)
+                 a.timeout, Path(a.map).name if a.map else "mobile_sim")
         return
     missing = [k for k in ("mobile_sim", "amcl", "planner", "dwa") if getattr(a, k) is None]
     if missing:
@@ -255,10 +260,13 @@ def main():
         stack.start("planner_dijkstra", a.planner, leaf_conf(a.planner), 8003)
         stack.start("planner_dwa", a.dwa, leaf_conf(a.dwa), 8004)
         stack.start("navigation_hub", a.hub, "app.conf", 8006)
-        stack.start("navigation_manager", ROOT, None, 8005,
-                    cmd=[sys.executable, "-m", "navigation_manager", "--port", "8005"])
+        manager = [sys.executable, "-m", "navigation_manager", "--port", "8005"]
+        if a.map:
+            manager += ["--map", str(Path(a.map).resolve())]
+        stack.start("navigation_manager", ROOT, None, 8005, cmd=manager)
         if a.test:
-            run_test(stack, tuple(float(v) for v in a.goal.split(",")), a.timeout)
+            run_test(stack, tuple(float(v) for v in a.goal.split(",")), a.timeout,
+                     Path(a.map).name if a.map else "mobile_sim")
         else:
             print(f"running. open {MANAGER}/ . Ctrl-C to stop", flush=True)
             signal.pause()
