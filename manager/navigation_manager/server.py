@@ -5,19 +5,23 @@
 | GET /                       | 画面(web/index.html) |
 | GET /api/status             | 状態(state・goal・pose・goal_distance・retries・message・local など) |
 | GET /api/view               | 画面用: 状態 + 真の姿勢 + 経路 + 局所計画 + 障害物 + 粒子 |
-| GET /api/map                | mobile_sim の地図の画像 |
-| GET /api/map_info           | 地図の解像度・原点・大きさ |
+| GET /api/map                | 配った地図の画像(まだ配っていなければ mobile_sim の地図) |
+| GET /api/map_info           | その地図の解像度・原点・大きさ(width・height)・source |
 | POST /api/goal              | `{x, y, theta}` ゴールを出す |
 | POST /api/cancel            | キャンセル |
 | POST /api/initial_pose      | `{x, y, theta}`、または空で mobile_sim の真の姿勢を localization_amcl の初期位置にする |
 | POST /api/distribute_map    | mobile_sim の地図を planner_dijkstra と localization_amcl に渡す |
+| POST /api/load_map          | 地図の YAML を読んで同じく渡す。`{path}`(manager から見たパス)、または `{yaml, images: {ファイル名: base64}, name}`(画面から送る) |
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
+from urllib.parse import urlsplit
 
 from .apps import AppError
 from .manager import Manager
@@ -31,6 +35,18 @@ def _pose(body: dict) -> Pose:
         return Pose(float(body["x"]), float(body["y"]), float(body.get("theta", 0.0)))
     except (KeyError, TypeError, ValueError) as e:
         raise ValueError(f"need {{x, y, theta}}: {e}") from e
+
+
+def _load_map(manager: Manager, body: dict) -> dict:
+    if body.get("path"):
+        return manager.load_map(str(body["path"]))
+    if isinstance(body.get("yaml"), str):
+        try:
+            images = {str(k): base64.b64decode(v, validate=True) for k, v in (body.get("images") or {}).items()}
+        except (binascii.Error, TypeError, ValueError) as e:
+            raise ValueError(f"images must be base64: {e}") from e
+        return manager.load_map_upload(body["yaml"], images, body.get("name"))
+    raise ValueError("need {path} or {yaml, images}")
 
 
 def make_handler(manager: Manager):
@@ -53,38 +69,45 @@ def make_handler(manager: Manager):
             n = int(self.headers.get("Content-Length") or 0)
             if n == 0:
                 return {}
-            return json.loads(self.rfile.read(n))
+            body = json.loads(self.rfile.read(n))
+            if not isinstance(body, dict):
+                raise ValueError("the request body must be a JSON object")
+            return body
 
         def do_GET(self):
+            path = urlsplit(self.path).path
             try:
-                if self.path in ("/", "/index.html"):
+                if path in ("/", "/index.html"):
                     page = resources.files("navigation_manager").joinpath("web/index.html").read_bytes()
                     return self._send(200, page, "text/html; charset=utf-8")
-                if self.path == "/api/status":
+                if path == "/api/status":
                     return self._json(manager.status())
-                if self.path == "/api/view":
+                if path == "/api/view":
                     return self._json(manager.view())
-                if self.path == "/api/map":
-                    ctype, png = manager.apps.map_png()
+                if path == "/api/map":
+                    ctype, png = manager.map_png()
                     return self._send(200, png, ctype or "image/png")
-                if self.path == "/api/map_info":
-                    return self._json(manager.apps.map_info())
+                if path == "/api/map_info":
+                    return self._json(manager.map_info())
                 self._json({"error": "not found"}, 404)
             except AppError as e:
                 self._json({"error": str(e)}, 502)
 
         def do_POST(self):
+            path = urlsplit(self.path).path
             try:
                 body = self._body()
-                if self.path == "/api/goal":
+                if path == "/api/goal":
                     return self._json(manager.set_goal(_pose(body)))
-                if self.path == "/api/cancel":
+                if path == "/api/cancel":
                     return self._json(manager.cancel())
-                if self.path == "/api/initial_pose":
+                if path == "/api/initial_pose":
                     p = manager.set_initial_pose(_pose(body) if body else None)
                     return self._json({"x": p.x, "y": p.y, "theta": p.theta})
-                if self.path == "/api/distribute_map":
+                if path == "/api/distribute_map":
                     return self._json(manager.distribute_map())
+                if path == "/api/load_map":
+                    return self._json(_load_map(manager, body))
                 self._json({"error": "not found"}, 404)
             except ValueError as e:
                 self._json({"error": str(e)}, 400)

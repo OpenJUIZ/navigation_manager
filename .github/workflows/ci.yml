@@ -29,8 +29,15 @@ jobs:
       - run: cargo test --workspace
 
   manager:
-    # Python の navigation_manager(標準ライブラリだけ)の単体テスト
-    runs-on: ubuntu-latest
+    # Python の navigation_manager(標準ライブラリだけ)の単体テスト。Windows でも動かす(地図のパスの扱いなど)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -83,8 +90,17 @@ jobs:
   e2e:
     # ナビゲーション一式を navigation_hub を根にした木の形で起動し、Python の navigation_manager からゴールを出して
     # 着くまでと、キャンセルで止まることを確かめる。
-    # mobile_sim・planner_dijkstra・planner_dwa は main をビルドし、localization_amcl(C++)はリリースの .juizapp を使う
+    # mobile_sim・planner_dijkstra・planner_dwa は main をビルドし、localization_amcl(C++)はリリースの .juizapp を使う。
+    # map: mobile_sim は mobile_sim の地図を配る。slam は SLAM(mapper_gmapping)で作った地図を --map で配り、扉を抜けて右の部屋へ行く
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - map: mobile_sim
+            args: ""
+          - map: slam
+            args: "--map manager/tests/data/slam_map/map.yaml --goal 3.0,-1.5,0.0"
     env:
       AMCL_VERSION: "0.1.0"
     steps:
@@ -126,13 +142,13 @@ jobs:
           mkdir -p deps/localization_amcl && unzip -q deps/localization_amcl-*.juizapp -d deps/localization_amcl
       - name: End-to-end (goal -> plan -> follow -> arrive)
         run: |
-          python3 scripts/run_stack.py --test --logdir stack_logs \
+          python3 scripts/run_stack.py --test --logdir stack_logs ${{ matrix.args }} \
             --mobile-sim deps/mobile_sim/app --amcl deps/localization_amcl \
             --planner deps/planner_dijkstra/app --dwa deps/planner_dwa/app
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stack_logs
+          name: stack_logs-${{ matrix.map }}
           path: stack_logs
           if-no-files-found: ignore

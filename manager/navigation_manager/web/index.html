@@ -62,6 +62,8 @@
       <button id="cancel">キャンセル</button>
       <button id="init">初期位置を真の姿勢に</button>
       <button id="map_sync">mobile_sim の地図を配る</button>
+      <button id="map_load" title="地図の YAML と、そこに書かれた画像(PNG・PGM)を一緒に選ぶ">地図を読む…</button>
+      <input type="file" id="map_files" multiple accept=".yaml,.yml,.png,.pgm" hidden>
     </div>
     <dl>
       <dt>ゴールまで</dt><dd id="dist">-</dd>
@@ -79,7 +81,7 @@
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 const img = new Image();
-let info = null, view = null, drag = null;
+let info = null, view = null, drag = null, mapVersion = null;
 
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const on = id => document.getElementById(id).checked;
@@ -163,6 +165,25 @@ canvas.addEventListener("pointerup", async e => {
 document.getElementById("cancel").onclick = () => post("/api/cancel");
 document.getElementById("init").onclick = () => post("/api/initial_pose");
 document.getElementById("map_sync").onclick = () => post("/api/distribute_map");
+// 地図を読む: YAML と画像を選んで送る。画像は YAML の image に書かれたファイル名で探される
+const mapFiles = document.getElementById("map_files");
+document.getElementById("map_load").onclick = () => mapFiles.click();
+mapFiles.onchange = async () => {
+  const files = [...mapFiles.files];
+  mapFiles.value = "";
+  const yaml = files.find(f => /\.ya?ml$/i.test(f.name));
+  if (!yaml) { document.getElementById("error").textContent = "地図の YAML(と画像)を選んでください"; return; }
+  const b64 = async f => {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    let s = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  };
+  const images = {};
+  for (const f of files) if (f !== yaml) images[f.name] = await b64(f);
+  const v = await post("/api/load_map", { yaml: await yaml.text(), images, name: yaml.name });
+  if (v.source) await loadMap();
+};
 for (const id of ["show_local", "show_scan", "show_particles"]) document.getElementById(id).onchange = draw;
 
 async function tick() {
@@ -178,17 +199,26 @@ async function tick() {
     document.getElementById("particles").textContent = view.particle_count == null ? "-" : view.particle_count;
     document.getElementById("map_source").textContent = view.map_source ? `${view.map_source} の地図を配布済み` : "各アプリの地図のまま";
     document.getElementById("error").textContent = view.error || "";
+    if (view.map_version !== mapVersion) await loadMap();
     draw();
   } catch (e) {
     document.getElementById("error").textContent = String(e);
   }
 }
 
-(async () => {
-  info = await (await fetch("/api/map_info")).json();
+// 画面に描く地図(配った地図、まだ配っていなければ mobile_sim の地図)を読み直す
+async function loadMap() {
+  const v = view ? view.map_version : null;
+  const next = await (await fetch("/api/map_info")).json();
+  if (next.error) throw new Error(next.error);
+  info = next;
+  mapVersion = v;
   canvas.height = Math.round(canvas.width * info.height / info.width);
+  img.src = `/api/map?v=${v}`;
+}
+
+(async () => {
   img.onload = draw;
-  img.src = "/api/map";
   tick();
   setInterval(tick, 300);
 })();

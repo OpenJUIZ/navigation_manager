@@ -26,15 +26,24 @@ python3 scripts/run_stack.py --mobile-sim <dir> --amcl <dir> --planner <dir> --d
 
 `<dir>` はそれぞれのアプリの app.conf があるディレクトリ(.juizapp を展開したもの、またはリポジトリの app/)。
 起動時に mobile_sim の地図を planner_dijkstra・localization_amcl に配る。
+`--map map.yaml` を付けると、代わりにその地図(ROS の map_server の形。SLAM で作って保存したものなど)を配り、画面にもその地図を描く。
+画像は PNG か PGM で、YAML の `image` に YAML から見た相対パスで書く。
 ブラウザで http://localhost:8005/ を開き、地図をクリックしてドラッグするとゴールを出せる。局所計画・障害物・粒子も表示する。
 
 ```
 curl -X POST localhost:8005/api/goal -H 'Content-Type: application/json' -d '{"x": 0.0, "y": 1.5, "theta": 0.0}'
 curl -X POST localhost:8005/api/cancel
 curl -X POST localhost:8005/api/distribute_map     # mobile_sim の地図を配り直す
+curl -X POST localhost:8005/api/load_map -H 'Content-Type: application/json' -d '{"path": "/home/me/maps/map.yaml"}'   # 地図の YAML を配る
 ```
 
-`--test` を付けると、地図の配布、ゴールに着くまで、表示(粒子・局所計画・障害物)、キャンセルで止まることを確かめて終わる(CI の e2e)。
+画面の「地図を読む…」で、地図の YAML と画像を一緒に選んでも配れる。navigation_manager だけを起動するときも同じく
+`navigation-manager --map map.yaml` で渡せる。
+
+```
+```
+
+`--test` を付けると、地図の配布(`--map` があればその地図)、ゴールに着くまで、表示(粒子・局所計画・障害物)、キャンセルで止まることを確かめて終わる(CI の e2e)。
 
 ## Docker で動かす
 

@@ -63,8 +63,8 @@ juiz 0.2.4。トピックを出すだけ・受けるだけの試験用プラグ�
 | ゴール・引き直し | planner_dijkstra `planner_set_goal`(計画して経路を返す)→ planner_dwa `dwa_set_path` |
 | キャンセル・到着・失敗 | planner_dwa `dwa_cancel` |
 | 初期位置 | mobile_sim `mobile_sim_get_pose`(真の姿勢)→ localization_amcl `amcl_set_initial_pose` |
-| 起動時・画面のボタン(地図の配布) | mobile_sim `mobile_sim_get_map`・`mobile_sim_get_map_info` → planner_dijkstra `planner_set_map`・localization_amcl `amcl_set_map`(multipart の PUT。追っている途中なら先に止める) |
-| 画面 | mobile_sim `mobile_sim_get_map`・`mobile_sim_get_map_info`・`mobile_sim_get_pose`、localization_amcl `amcl_get_state`(粒子)、planner_dwa `dwa_get_state`(局所計画・障害物) |
+| 起動時・画面のボタン(地図の配布) | mobile_sim `mobile_sim_get_map`・`mobile_sim_get_map_info`、または地図の YAML(`--map`・`/api/load_map`・画面の「地図を読む」)→ planner_dijkstra `planner_set_map`・localization_amcl `amcl_set_map`(multipart の PUT。追っている途中なら先に止める) |
+| 画面 | 配った地図(manager が覚えている。まだ配っていなければ mobile_sim `mobile_sim_get_map`・`mobile_sim_get_map_info`)、mobile_sim `mobile_sim_get_pose`、localization_amcl `amcl_get_state`(粒子)、planner_dwa `dwa_get_state`(局所計画・障害物) |
 
 経路はトピック path を使わず、manager が planner から受けて DWA に渡す(どのゴールの経路かを manager が知っているため)。
 
@@ -87,16 +87,17 @@ cancel: PLANNING・FOLLOWING から CANCELED
 
 ## 5. 画面と API(HTTP 8005)
 
-画面: 地図(mobile_sim)、真の姿勢、推定姿勢、大域経路、局所計画(DWA の最良の軌道)、障害物(DWA が使うスキャン点)、粒子(AMCL)、ゴール。局所計画・障害物・粒子は表示を切り替えられる。地図をクリックしてドラッグすると、その向きのゴールを出す。キャンセル、初期位置を真の姿勢に、mobile_sim の地図を配る。
+画面: 地図(配った地図。mobile_sim か、`--map`・「地図を読む」で読んだ YAML)、真の姿勢、推定姿勢、大域経路、局所計画(DWA の最良の軌道)、障害物(DWA が使うスキャン点)、粒子(AMCL)、ゴール。局所計画・障害物・粒子は表示を切り替えられる。地図をクリックしてドラッグすると、その向きのゴールを出す。キャンセル、初期位置を真の姿勢に、mobile_sim の地図を配る、地図を読む(YAML と画像を選ぶ)。
 
 | API | 内容 |
 |---|---|
 | GET /api/status・/api/view | 状態(画面用は真の姿勢・経路・局所計画・障害物・粒子つき) |
-| GET /api/map・/api/map_info | mobile_sim の地図 |
+| GET /api/map・/api/map_info | 画面に描く地図(配った地図、まだ配っていなければ mobile_sim の地図)。map_info は width・height・source つき |
 | POST /api/goal `{x, y, theta}` | ゴール |
 | POST /api/cancel | キャンセル |
 | POST /api/initial_pose `{x, y, theta}` または空 | localization_amcl の初期位置(空なら mobile_sim の真の姿勢) |
 | POST /api/distribute_map | mobile_sim の地図を planner_dijkstra・localization_amcl に渡す(起動時にも渡す。`--no-distribute-map` で止める) |
+| POST /api/load_map `{path}` または `{yaml, images, name}` | 地図の YAML(ROS の map_server の形、画像は PNG・PGM)を読んで同じく渡す。起動時は `--map`。画面からは YAML と画像を base64 で送る |
 
 ## 6. マイルストーン
 
@@ -107,7 +108,8 @@ cancel: PLANNING・FOLLOWING から CANCELED
 | M2 | 葉の conf と起動スクリプト、4 アプリそろえた結合テスト | 済(#2) |
 | M3 | Python の navigation_manager に作り直す(状態機械・HTTP での指示・画面)。Rust 側は navigation_hub(中継だけ)に | 済(#3) |
 | M4 | 地図の配布(mobile_sim の地図を planner・AMCL に set_map で渡す)、局所計画・スキャン・粒子の表示 | 済(#4) |
-| M5 | Docker(5 つ + manager の compose、amd64/arm64)、リリース(navigation_hub の .juizapp、manager の Python パッケージ) | この PR |
+| M5 | Docker(5 つ + manager の compose、amd64/arm64)、リリース(navigation_hub の .juizapp、manager の Python パッケージ) | 済(#5) |
+| M6 | 地図の YAML を配る(`--map`・`/api/load_map`・画面の「地図を読む」)、画面に配った地図を描く、e2e に SLAM の地図 | この PR |
 
 ## 7. Docker とリリース(M5)
 
@@ -126,5 +128,5 @@ cancel: PLANNING・FOLLOWING から CANCELED
 
 ## 8. 未決事項
 
-- 地図の出どころ: まずは mobile_sim の地図で自己位置推定ナビだけにし、mapper_gmapping を使う SLAM ナビは後回し(推奨)。
+- 地図の出どころ: mobile_sim の地図のほか、M6 で SLAM(mapper_gmapping)で作って保存した地図の YAML を配れるようにした。走りながら地図を作る SLAM ナビは後回し。
 - navigation_manager の配り方: pip(Releases の wheel、または `pip install ./manager`)と Docker(M5)。juizapp には入れない。

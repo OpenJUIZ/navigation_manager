@@ -1,9 +1,11 @@
 """navigation_manager を起動する。
 
-    python3 -m navigation_manager [--port 8005] [--sim URL] [--amcl URL] [--planner URL] [--dwa URL] [--hub URL]
+    python3 -m navigation_manager [--port 8005] [--map map.yaml] [--sim URL] [--amcl URL] [--planner URL] [--dwa URL] [--hub URL]
 
 先にナビゲーション一式(mobile_sim・localization_amcl・planner_dijkstra・planner_dwa・navigation_hub)を
 起動しておく(scripts/run_stack.py)。ブラウザで http://localhost:8005/ を開く。
+起動時に mobile_sim の地図を planner_dijkstra・localization_amcl に配る。--map で地図の YAML(SLAM で作ったものなど)を渡すと、
+mobile_sim の地図の代わりにそれを配り、画面にもその地図を描く。
 """
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ import time
 
 from .apps import Apps, Urls, ready
 from .manager import Manager
+from .maps import MapError
 from .server import serve
 from .state import Params
 
@@ -36,11 +39,15 @@ def main(argv=None) -> None:
     ap.add_argument("--max-planning-retries", type=int, default=p.max_planning_retries)
     ap.add_argument("--initial-pose-from-sim", action="store_true",
                     help="起動時に mobile_sim の真の姿勢を localization_amcl の初期位置にする")
+    ap.add_argument("--map", metavar="YAML",
+                    help="起動時に配る地図の YAML(ROS の map_server の形。image は YAML から見た相対パス)。省くと mobile_sim の地図")
     ap.add_argument("--no-distribute-map", action="store_true",
                     help="起動時に mobile_sim の地図を planner_dijkstra・localization_amcl に渡さない(各アプリの地図のまま)")
     ap.add_argument("--wait", type=float, default=30.0, help="各アプリが応答するまで待つ秒数")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
+    if a.map and a.no_distribute_map:
+        ap.error("--map and --no-distribute-map cannot be used together")
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     log = logging.getLogger("navigation_manager")
@@ -57,7 +64,12 @@ def main(argv=None) -> None:
             time.sleep(0.5)
     manager = Manager(Apps(urls),
                       Params(a.xy_goal_tolerance, a.yaw_goal_tolerance, a.max_planning_retries), a.rate)
-    if not a.no_distribute_map:
+    if a.map:
+        try:
+            manager.load_map(a.map)
+        except MapError as e:
+            raise SystemExit(f"--map: {e}")
+    elif not a.no_distribute_map:
         manager.distribute_map()
     if a.initial_pose_from_sim:
         p0 = manager.set_initial_pose()
