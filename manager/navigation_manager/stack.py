@@ -1,7 +1,7 @@
 """ナビゲーション一式を .juizapp から起動する(navigation-manager stack)。
 
     navigation-manager stack mobile_sim-0.3.3.juizapp localization_amcl-0.1.0.juizapp \\
-        planner_dijkstra-0.1.0.juizapp planner_dwa-0.1.0.juizapp navigation_hub-0.3.0.juizapp [--map map.yaml]
+        planner_dijkstra-0.1.0.juizapp planner_dwa-0.1.0.juizapp navigation_hub-0.3.1.juizapp [--map map.yaml]
 
 navigation_hub を根にした 1 本の木の形で、決まった順に起動する。最後に navigation_manager(HTTP 8005、画面つき)を起動する。
 
@@ -37,6 +37,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -244,6 +245,27 @@ class Stack:
                 time.sleep(0.2)
         print(f"started {name} (:{PORTS[name]})", flush=True)
 
+    def restart(self, name: str, *launch):
+        """name を止めて、ログを <name>.1.log に残してから起動し直す"""
+        for i, (n, p) in enumerate(self.procs):
+            if n == name:
+                if p.poll() is None:
+                    _terminate(p)
+                    try:
+                        p.wait(10)
+                    except subprocess.TimeoutExpired:
+                        p.kill()
+                        p.wait(5)
+                del self.procs[i]
+                break
+        log = self.logdir / f"{name}.log"
+        if log.exists():
+            log.replace(self.logdir / f"{name}.1.log")
+        end = time.time() + 10
+        while port_in_use(PORTS[name]) and time.time() < end:
+            time.sleep(0.2)
+        self.start(name, *launch)
+
     def check(self):
         for name, p in self.procs:
             if p.poll() is not None:
@@ -274,6 +296,36 @@ class Stack:
                 p.wait(5)
             except subprocess.TimeoutExpired:
                 p.kill()
+
+
+def _call(port: int, container: str, name: str, type_name: str):
+    base = f"http://{HOST}:{port}"
+    ident = urllib.parse.quote(f"{base}/container_process/{name}::{type_name}:{container}", safe="")
+    req = urllib.request.Request(f"{base}/api/container_process/call?identifier={ident}", data=b"{}", method="PATCH",
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=2.0) as r:
+        return json.loads(r.read())
+
+
+def tree_ready() -> bool:
+    """navigation_hub が出し直すトピックが葉に届いているか: planner_dijkstra に推定姿勢(始点)、
+    planner_dwa に推定姿勢とスキャン(障害物)"""
+    try:
+        planner = _call(PORTS["planner_dijkstra"], "planner0", "get_state0", "planner_get_state")
+        dwa = _call(PORTS["planner_dwa"], "dwa0", "get_state0", "dwa_get_state")
+    except (OSError, ValueError):
+        return False
+    return bool(planner.get("start")) and bool(dwa.get("amcl_pose")) and bool(dwa.get("obstacles"))
+
+
+def wait_tree(timeout: float) -> bool:
+    end = time.time() + timeout
+    while time.time() < end:
+        if tree_ready():
+            print("topics reach the leaves through navigation_hub", flush=True)
+            return True
+        time.sleep(0.5)
+    return False
 
 
 def _terminate(p: subprocess.Popen):
@@ -322,15 +374,25 @@ def run(a) -> int:
             if n in LEAVES:
                 d = app.extract(work / f"{app.name}-{app.version}")
                 conf = write_leaf_conf(d, app.entry, rules[n])
-                cmd = [juiz, "-f", str(conf), "-d"]
-                stack.start(n, cmd, d, {"JUIZ_APP_DIR": str(d)})
+                launch = ([juiz, "-f", str(conf), "-d"], d, {"JUIZ_APP_DIR": str(d)})
             elif app.is_package:
-                stack.start(n, [juiz, "run", str(app.path)], work)
+                launch = ([juiz, "run", str(app.path)], work, None)
             else:
                 cmd = [juiz, "-f", str(app.path / app.entry), "-d"]
                 if n == "mobile_sim":
                     cmd += ["--ipc", "mobile_sim"]  # juiz run の基礎と同じく IPC 名を持たせる
-                stack.start(n, cmd, app.path, {"JUIZ_APP_DIR": str(app.path)})
+                launch = (cmd, app.path, {"JUIZ_APP_DIR": str(app.path)})
+            stack.start(n, *launch)
+        # 根が葉につなぎ損ねることがある(起動直後の IPC の応答待ちが切れるなど)。トピックが木を通って葉に届くまで待ち、
+        # 届かなければ根を 1 度だけ起動し直す
+        for attempt in range(2):
+            if wait_tree(a.tree_timeout):
+                break
+            if attempt == 1:
+                raise StackError("topics do not reach planner_dijkstra / planner_dwa through navigation_hub "
+                                 "(see navigation_hub.log)")
+            print("topics do not reach the leaves yet; restarting navigation_hub", flush=True)
+            stack.restart("navigation_hub", *launch)
         manager = [sys.executable, "-m", "navigation_manager", "--port", str(PORTS["navigation_manager"])]
         for opt, n in (("--sim", "mobile_sim"), ("--amcl", "localization_amcl"),
                        ("--planner", "planner_dijkstra"), ("--dwa", "planner_dwa")):
@@ -376,6 +438,7 @@ def main(argv=None) -> None:
                     help="ゴールを出して着くまでと、キャンセルで止まることを確かめて終わる")
     ap.add_argument("--goal", default="0.0,1.5,0.0", help="x,y,theta(map 座標系、--test で使う)")
     ap.add_argument("--timeout", type=float, default=120.0, help="--test でゴールに着くまで待つ秒数")
+    ap.add_argument("--tree-timeout", type=float, default=20.0, help=argparse.SUPPRESS)
     ap.add_argument("--manager-arg", dest="manager_args", action="append", metavar="ARG",
                     help="navigation_manager にそのまま渡す引数(--manager-arg=--initial-pose-from-sim など、何度でも)")
     a = ap.parse_args(argv)

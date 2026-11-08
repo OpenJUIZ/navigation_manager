@@ -23,7 +23,7 @@ navigation_manager (Python) ── HTTP ──→ 4 つのアプリ
 ```
 pip install juiz-cli==0.2.4 navigation-manager
 navigation-manager stack mobile_sim-0.3.3.juizapp localization_amcl-0.1.0.juizapp \
-    planner_dijkstra-0.1.0.juizapp planner_dwa-0.1.0.juizapp navigation_hub-0.3.0.juizapp
+    planner_dijkstra-0.1.0.juizapp planner_dwa-0.1.0.juizapp navigation_hub-0.3.1.juizapp
 ```
 
 .juizapp はそれぞれのリポジトリの Releases から取る
