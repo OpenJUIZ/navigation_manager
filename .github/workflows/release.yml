@@ -1,7 +1,9 @@
 name: Release
 
 # navigation_hub のプラグインをターゲットごとにビルドして .juizapp にまとめ、navigation_manager の Python パッケージ
-# (wheel と sdist)を作る。タグ v* では Releases に載せる。
+# (wheel と sdist)を作る。タグ v* では Releases に載せ、Python パッケージを PyPI(navigation-manager)に出す。
+# PyPI へは Trusted Publishing(pypi.org の Trusted Publisher: Owner OpenJUIZ / Repository navigation_manager /
+# Workflow release.yml / Environment pypi)で出すので、token は要らない。
 # プラグインは C ABI なので、rustc の版は問わない。juiz の版は Cargo.toml の juiz_sdk から決める。
 
 on:
@@ -17,6 +19,11 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # 一式の確かめ(navigation-manager stack --test)に使う公開版
+  MOBILE_SIM_VERSION: "0.3.3"
+  AMCL_VERSION: "0.1.0"
+  DIJKSTRA_VERSION: "0.1.0"
+  DWA_VERSION: "0.1.0"
 
 jobs:
   versions:
@@ -102,6 +109,10 @@ jobs:
           python3 scripts/smoke_test.py --app-dir /tmp/hub
           python -m venv /tmp/venv && /tmp/venv/bin/pip install dist/navigation_manager-*.whl
           /tmp/venv/bin/navigation-manager --help > /dev/null
+      - name: Check the stack (navigation-manager stack with the published apps and this navigation_hub)
+        run: |
+          scripts/fetch_apps.sh deps
+          /tmp/venv/bin/navigation-manager stack deps/*.juizapp dist/navigation_hub-*.juizapp --test --logdir stack_logs
       - uses: actions/upload-artifact@v4
         with:
           name: release
@@ -116,5 +127,24 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
           else
             gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes \
-              --notes "Docker: \`docker compose -f docker/compose.yml up --build\` の後、http://localhost:8005/ を開く。手元で動かすときは README を見てください(juiz ${{ needs.versions.outputs.juiz }})"
+              --notes "\`pip install juiz-cli==${{ needs.versions.outputs.juiz }} navigation-manager\` の後、\`navigation-manager stack <5 つの .juizapp>\` で一式を起動し、http://localhost:8005/ を開く。Docker: \`docker compose -f docker/compose.yml up --build\`。詳しくは README を見てください"
           fi
+
+  pypi:
+    # navigation_manager の wheel と sdist を PyPI に出す(Trusted Publishing)
+    needs: pack
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/navigation-manager
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+      - name: Pick the Python packages
+        run: mkdir -p dist && cp release/*.whl release/*.tar.gz dist/ && ls dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

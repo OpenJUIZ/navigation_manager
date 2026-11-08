@@ -43,8 +43,48 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: python -m pip install pyyaml
       - run: cd manager && python -m unittest discover -s tests -v
       - run: python -m compileall -q manager scripts
+
+  stack:
+    # pip で入れた navigation-manager の stack コマンドで、公開版の .juizapp だけから一式を起動し、ゴールに着くまでを確かめる。
+    # 演習(公式サイト)と同じ手順。Windows・macOS でも動かす。navigation_hub は Releases のもの(HUB_VERSION)を使う
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    env:
+      HUB_VERSION: "0.2.0"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install juiz and navigation-manager
+        run: python -m pip install "juiz-cli==$(sed -n 's/^juiz_sdk = "=\(.*\)"/\1/p' Cargo.toml)" ./manager
+      - name: Get the apps
+        run: |
+          scripts/fetch_apps.sh deps
+          curl -fsSL --retry 3 -o "deps/navigation_hub-$HUB_VERSION.juizapp" \
+            "https://github.com/OpenJUIZ/navigation_manager/releases/download/v$HUB_VERSION/navigation_hub-$HUB_VERSION.juizapp"
+      - name: navigation-manager stack --test (mobile_sim map)
+        run: navigation-manager stack deps/*.juizapp --test --logdir stack_logs/mobile_sim
+      - name: navigation-manager stack --test (SLAM map)
+        run: |
+          navigation-manager stack deps/*.juizapp --test --logdir stack_logs/slam \
+            --map manager/tests/data/slam_map/map.yaml --goal 3.0,-1.5,0.0
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stack_logs-${{ matrix.os }}
+          path: stack_logs
+          if-no-files-found: ignore
 
   smoke:
     # juiz で app/smoke_test.conf を起動し、navigation_hub のプラグインを読み込んで nav_relay を HTTP から呼ぶ。

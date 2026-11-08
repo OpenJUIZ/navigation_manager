@@ -3,3 +3,5 @@ target/
 app/plugins/
 __pycache__/
 .docker.conf
+manager/build/
+*.egg-info/

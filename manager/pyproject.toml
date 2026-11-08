@@ -4,13 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "navigation-manager"
-version = "0.2.0"
+version = "0.3.0"
 description = "Navigation manager for the JUIZ 2D navigation stack: goal -> plan -> follow -> arrive over HTTP, with a browser UI"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
 requires-python = ">=3.9"
-# 標準ライブラリだけで動く
-dependencies = []
+# 画面と状態機械は標準ライブラリだけで動く。PyYAML は stack が app.conf を読むのに使う
+dependencies = ["PyYAML>=5.1"]
+
+[project.urls]
+Homepage = "https://github.com/OpenJUIZ/navigation_manager"
 
 [project.scripts]
 navigation-manager = "navigation_manager.__main__:main"

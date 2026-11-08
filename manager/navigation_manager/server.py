@@ -19,6 +19,7 @@ import base64
 import binascii
 import json
 import logging
+import socketserver
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from urllib.parse import urlsplit
@@ -117,5 +118,16 @@ def make_handler(manager: Manager):
     return Handler
 
 
+class _Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def server_bind(self):
+        # HTTPServer.server_bind は socket.getfqdn で名前を逆引きする。macOS などでは数十秒かかることがあるので省く
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
+
+
 def serve(manager: Manager, host: str, port: int) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer((host, port), make_handler(manager))
+    return _Server((host, port), make_handler(manager))
