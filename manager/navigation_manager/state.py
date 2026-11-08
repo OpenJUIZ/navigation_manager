@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 IDLE = "idle"
 PLANNING = "planning"
@@ -53,6 +53,8 @@ class Navigator:
     params: Params = field(default_factory=Params)
     state: str = IDLE
     goal: Optional[Pose] = None
+    # 経路の終わり。planner_dijkstra が障害物に近すぎるゴールを寄せたときは寄せた先(向きはゴールの向き)、それ以外は goal
+    target: Optional[Pose] = None
     pose: Optional[Pose] = None
     retries: int = 0
     message: str = ""
@@ -66,6 +68,7 @@ class Navigator:
 
     def set_goal(self, goal: Pose, now: float) -> List[str]:
         self.goal = goal
+        self.target = goal
         self.goal_seq += 1
         self.retries = 0
         self._set(PLANNING, now, "goal received")
@@ -84,12 +87,15 @@ class Navigator:
             return [STOP]
         return []
 
-    def on_plan_result(self, ok: bool, message: str, now: float) -> List[str]:
-        """planner_dijkstra の計画の結果"""
+    def on_plan_result(self, ok: bool, message: str, now: float,
+                       goal_moved_to: Optional[Tuple[float, float]] = None) -> List[str]:
+        """planner_dijkstra の計画の結果。goal_moved_to はゴールを寄せた先(経路の goal_moved_to)。着いたかはそこで見る"""
         if self.state != PLANNING:
             return []
         if ok:
-            self._set(FOLLOWING, now, "following the path")
+            g = self.goal
+            self.target = g if goal_moved_to is None or g is None else Pose(goal_moved_to[0], goal_moved_to[1], g.theta)
+            self._set(FOLLOWING, now, f"following the path ({message})" if message else "following the path")
             return []
         return self._retry(now, f"planning failed: {message}")
 
@@ -108,9 +114,10 @@ class Navigator:
         return [PLAN]
 
     def arrived(self) -> bool:
-        if self.goal is None or self.pose is None:
+        g = self.target or self.goal
+        if g is None or self.pose is None:
             return False
-        g, p = self.goal, self.pose
+        p = self.pose
         return (
             math.hypot(g.x - p.x, g.y - p.y) <= self.params.xy_goal_tolerance
             and abs(normalize_angle(g.theta - p.theta)) <= self.params.yaw_goal_tolerance
@@ -123,6 +130,7 @@ class Navigator:
         return {
             "state": self.state,
             "goal": asdict(self.goal) if self.goal else None,
+            "target": asdict(self.target) if self.target else None,
             "pose": asdict(self.pose) if self.pose else None,
             "goal_distance": d,
             "retries": self.retries,

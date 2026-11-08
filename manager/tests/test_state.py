@@ -40,6 +40,20 @@ class NavigatorTest(unittest.TestCase):
         n.on_pose(Pose(1.0, 0.0, -math.pi + 0.01), 3.0)
         self.assertEqual(n.state, SUCCEEDED)
 
+    def test_arrival_at_a_moved_goal(self):
+        # planner_dijkstra がゴールを障害物から寄せたら、寄せた先に着けば SUCCEEDED
+        n = Navigator()
+        n.set_goal(Pose(-3.0, -2.5, 3.14), 0.0)
+        n.on_plan_result(True, "the goal is too close to obstacles: moved to (-2.98, -2.18)", 0.5, (-2.98, -2.18))
+        self.assertIn("moved to", n.message)
+        self.assertEqual(n.status()["target"], {"x": -2.98, "y": -2.18, "theta": 3.14})
+        self.assertEqual(n.status()["goal"]["y"], -2.5)
+        self.assertEqual(n.on_pose(Pose(-2.98, -2.2, 3.1), 1.0), [STOP])
+        self.assertEqual(n.state, SUCCEEDED)
+        # 次のゴールでは寄せた先を忘れる
+        n.set_goal(Pose(1.0, 0.0), 2.0)
+        self.assertEqual(n.status()["target"], {"x": 1.0, "y": 0.0, "theta": 0.0})
+
     def test_stuck_replans_then_fails(self):
         n = Navigator(Params(max_planning_retries=2))
         n.set_goal(Pose(3.0, 0.0), 0.0)

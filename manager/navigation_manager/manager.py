@@ -138,7 +138,9 @@ class Manager:
                 ok = False
                 path = dict(path, message=f"planner_dwa refused the path: {e}")
         # 失敗なら状態機械が引き直しか FAILED を決め、また PLAN を返すことがある
-        self._run(self.nav.on_plan_result(ok, str(path.get("message", "")), time.time()))
+        moved = path.get("goal_moved_to") if ok else None
+        moved_to = (moved["x"], moved["y"]) if isinstance(moved, dict) else None
+        self._run(self.nav.on_plan_result(ok, str(path.get("message", "")), time.time(), moved_to))
 
     def status(self) -> dict:
         with self.lock:
