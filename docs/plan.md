@@ -30,6 +30,9 @@ navigation_manager (8005, Python) ── HTTP ──→ 4 つのアプリ
 - planner_dijkstra・planner_dwa は mobile_sim に直接つながない。つなぐと mobile_sim の master が 2 つになり、トピックが届かなくなる。
   `juiz run` は juizapp.yaml の `depends` を自動で subsystem に足すので、この 2 つは葉の conf(`scripts/make_leaf_conf.py` が app.conf から作る)を `juiz -f` で起動する。
 - 根(navigation_hub)は 4 つの後に起動する。先に起動すると葉につながらず、起動に失敗する。navigation_manager は最後。
+- この起動は `navigation-manager stack <.juizapp…>`(v0.3.0、wheel に入っている)が全部行う。mobile_sim・localization_amcl・navigation_hub は `juiz run`、
+  葉の 2 つは .juizapp を展開して navigation_hub の .juizapp の `leaves/` から葉の conf を作り `juiz -f`。
+  navigation_hub を `juiz run` で起動しても木がつながり、ゴールに着くことを 2026-11-08 に公開版で確かめた。
 
 ## 2. M0 で確かめたこと(experiments/m0_topic_relay)
 

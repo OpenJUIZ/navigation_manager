@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Python の navigation_manager のイメージ。リポジトリのルートを context にしてビルドする:
 #   docker build -f docker/manager.Dockerfile -t navigation_manager .
-# 標準ライブラリだけなので、juiz は入れない(各アプリを HTTP で呼ぶ)
+# juiz は入れない(各アプリを HTTP で呼ぶ。PyYAML は stack 用で、ここでは使わない)
 FROM python:3.12-slim-bookworm
 COPY manager /src/manager
 COPY LICENSE-MIT LICENSE-APACHE /src/manager/

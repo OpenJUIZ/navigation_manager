@@ -1,9 +1,10 @@
 """navigation_manager を起動する。
 
-    python3 -m navigation_manager [--port 8005] [--map map.yaml] [--sim URL] [--amcl URL] [--planner URL] [--dwa URL] [--hub URL]
+    navigation-manager [--port 8005] [--map map.yaml] [--sim URL] [--amcl URL] [--planner URL] [--dwa URL] [--hub URL]
+    navigation-manager stack <.juizapp>... [--map map.yaml]     # 一式をまとめて起動する(navigation-manager stack --help)
 
 先にナビゲーション一式(mobile_sim・localization_amcl・planner_dijkstra・planner_dwa・navigation_hub)を
-起動しておく(scripts/run_stack.py)。ブラウザで http://localhost:8005/ を開く。
+起動しておく(navigation-manager stack はそれも含めて全部起動する)。ブラウザで http://localhost:8005/ を開く。
 起動時に mobile_sim の地図を planner_dijkstra・localization_amcl に配る。--map で地図の YAML(SLAM で作ったものなど)を渡すと、
 mobile_sim の地図の代わりにそれを配り、画面にもその地図を描く。
 """
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 import time
 
 from .apps import Apps, Urls, ready
@@ -21,6 +23,11 @@ from .state import Params
 
 
 def main(argv=None) -> None:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv and argv[0] == "stack":
+        from .stack import main as stack_main
+        stack_main(argv[1:])
+        return
     d = Urls()
     p = Params()
     ap = argparse.ArgumentParser(prog="navigation-manager", description=__doc__,
