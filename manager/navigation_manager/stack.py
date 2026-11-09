@@ -1,6 +1,6 @@
 """ナビゲーション一式を .juizapp から起動する(navigation-manager stack)。
 
-    navigation-manager stack mobile_sim-0.3.3.juizapp localization_amcl-0.1.0.juizapp \\
+    navigation-manager stack mobile_sim-0.3.3.juizapp localization_amcl-0.1.1.juizapp \\
         planner_dijkstra-0.1.0.juizapp planner_dwa-0.1.0.juizapp navigation_hub-0.4.0.juizapp [--map map.yaml]
 
 navigation_hub を根にした 1 本の木の形で、決まった順に起動する。最後に navigation_manager(HTTP 8005、画面つき)を起動する。
