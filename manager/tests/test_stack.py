@@ -64,7 +64,7 @@ class LeafTest(unittest.TestCase):
             self.assertEqual(app.depends, ["mobile_sim"])
             rules = yaml.safe_load((ROOT / "app" / "leaves" / "planner_dijkstra.yaml").read_text(encoding="utf-8"))
             self.assertEqual(leaf_run_command("juiz", app, rules),
-                             (["juiz", "run", str(pkg), "--depend", "mobile_sim=none",
+                             (["juiz", "run", str(app.path), "--depend", "mobile_sim=none",
                                "--remap", "amcl_pose=nav/amcl_pose"], {}))
             cmd, _ = leaf_run_command("juiz", app, {"subscribes": {"odom": "nav/odom"}, "publishes": {"cmd_vel": "x"}})
             self.assertEqual(cmd[-4:], ["--remap", "odom=nav/odom", "--remap", "cmd_vel=x"])
