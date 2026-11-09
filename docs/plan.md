@@ -28,10 +28,13 @@ navigation_manager (8005, Python) ── HTTP ──→ 4 つのアプリ
 
 - mobile_sim は localization_amcl の下に残す(2026-11-06 に ysuga が決定)。AMCL は高い頻度の scan を直接受けられ、conf を変えずに済む。
 - planner_dijkstra・planner_dwa は mobile_sim に直接つながない。つなぐと mobile_sim の master が 2 つになり、トピックが届かなくなる。
-  `juiz run` は juizapp.yaml の `depends` を自動で subsystem に足すので、この 2 つは葉の conf(`scripts/make_leaf_conf.py` が app.conf から作る)を `juiz -f` で起動する。
+  `juiz run` は juizapp.yaml の `depends` を自動で subsystem に足すので、この 2 つは `juiz run --depend mobile_sim=none` で起動する
+  (juiz 0.2.5 から。それまでは葉の conf を `scripts/make_leaf_conf.py` で作って `juiz -f` で起動していた。Docker の葉のイメージは今もそうする)。
 - 根(navigation_hub)は 4 つの後に起動する。先に起動すると葉につながらず、起動に失敗する。navigation_manager は最後。
 - この起動は `navigation-manager stack <.juizapp…>`(v0.3.1、wheel に入っている)が全部行う。mobile_sim・localization_amcl・navigation_hub は `juiz run`、
-  葉の 2 つは .juizapp を展開して navigation_hub の .juizapp の `leaves/` から葉の conf を作り `juiz -f`。
+  葉の 2 つも `juiz run` で、navigation_hub の .juizapp の `leaves/` の subscribes・publishes を `--remap 旧=新` にして渡す
+  (juiz#451、0.3.1 までは .juizapp を展開して葉の conf を作り `juiz -f`)。planner_dwa の bridge は `juiz run` では conf を上書きできないので、
+  環境変数 DWA_BRIDGE_AMCL_URL・DWA_BRIDGE_PLANNER_URL を空にして止める(Docker の葉と同じ)。
   navigation_hub を `juiz run` で起動しても木がつながり、ゴールに着くことを 2026-11-08 に公開版で確かめた。
   ただし根が起動直後に葉へつなぎ損ねることがある(CI で `receiving a response from ipc://localization_amcl failed` が出て、推定姿勢が planner に届かなかった)。
   そのため stack は根の起動後、planner_dijkstra の始点と planner_dwa の推定姿勢・障害物が埋まる(トピックが木を通って葉に届く)まで待ち、

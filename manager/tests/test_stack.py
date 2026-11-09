@@ -1,33 +1,17 @@
-import json
+import sys
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
 
 from navigation_manager import stack
-from navigation_manager.stack import App, StackError, collect, make_leaf, write_leaf_conf
+from navigation_manager.stack import App, StackError, check_juiz, collect, leaf_args
 
 ROOT = Path(__file__).resolve().parents[2]
 
-DWA_CONF = """
-"name": "planner_dwa"
-"brokers":
-  - { "type_name": "ipc", "name": "planner_dwa" }
-"subsystems":
-  - { "package": "mobile_sim", "type_name": "ipc", "name": "mobile_sim" }
-"containers":
-  - "type_name": "dwa"
-    "name": "dwa0"
-    "bridge": { "amcl": "http://localhost:8002" }
-    "processes":
-      - { "type_name": "dwa_step", "name": "step0", "subscribes": { "odom": "odom", "scan": "scan", "x": "other" },
-          "publishes": ["cmd_vel"] }
-"""
-
-
-def make_package(path: Path, name: str, extra=None, version="0.1.0"):
+def make_package(path: Path, name: str, extra=None, version="0.1.0", depends=""):
     with zipfile.ZipFile(path, "w") as z:
-        z.writestr("juizapp.yaml", f"format: 1\nname: {name}\nversion: {version}\nkind: app\nentry: app.conf\n")
+        z.writestr("juizapp.yaml", f"format: 1\nname: {name}\nversion: {version}\nkind: app\nentry: app.conf\n{depends}")
         z.writestr("app.conf", f'"name": "{name}"\n')
         for k, v in (extra or {}).items():
             z.writestr(k, v)
@@ -35,28 +19,62 @@ def make_package(path: Path, name: str, extra=None, version="0.1.0"):
 
 
 class LeafTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
     def test_bundled_rules(self):
-        # リポジトリの app/leaves の置き換えで、subsystems が消え、トピック名とコンテナの引数が替わる
+        # リポジトリの app/leaves の置き換えから、依存につながない --depend と、トピック名の --remap を作る
         import yaml
         rules = yaml.safe_load((ROOT / "app" / "leaves" / "planner_dwa.yaml").read_text(encoding="utf-8"))
-        conf = yaml.safe_load(DWA_CONF)
-        leaf = make_leaf(conf, rules)
-        self.assertNotIn("subsystems", leaf)
-        self.assertIn("subsystems", conf)  # 元は変えない
-        c = leaf["containers"][0]
-        self.assertIsNone(c["bridge"])
-        p = c["processes"][0]
-        self.assertEqual(p["subscribes"], {"odom": "nav/odom", "scan": "nav/scan", "x": "other"})
-        self.assertEqual(p["publishes"], ["cmd_vel_dwa"])
-        self.assertEqual(leaf["brokers"], conf["brokers"])
+        app = App(make_package(self.dir / "dwa.juizapp", "planner_dwa", depends="depends:\n  mobile_sim: '>=0.3.1'\n"))
+        args = leaf_args(app, rules)
+        self.assertEqual(args[:2], ["--depend", "mobile_sim=none"])
+        remaps = [args[i + 1] for i in range(len(args)) if args[i] == "--remap"]
+        self.assertIn("odom=nav/odom", remaps)
+        self.assertIn("path=nav/path", remaps)
+        self.assertIn("cmd_vel=cmd_vel_dwa", remaps)
+        self.assertEqual(len(remaps), 6)
+        # bridge は juiz run の引数では止められないので、環境変数で止める
+        self.assertEqual(stack.LEAF_ENV["planner_dwa"], {"DWA_BRIDGE_AMCL_URL": "", "DWA_BRIDGE_PLANNER_URL": ""})
 
-    def test_write_leaf_conf(self):
-        with tempfile.TemporaryDirectory() as d:
-            (Path(d) / "app.conf").write_text(DWA_CONF, encoding="utf-8")
-            out = write_leaf_conf(Path(d), "app.conf", {"publishes": {"cmd_vel": "x"}})
-            self.assertEqual(out, Path(d) / "leaf.conf")
-            leaf = json.loads(out.read_text(encoding="utf-8"))
-            self.assertEqual(leaf["containers"][0]["processes"][0]["publishes"], ["x"])
+    def test_no_depends(self):
+        app = App(make_package(self.dir / "p.juizapp", "planner_dijkstra"))
+        self.assertEqual(leaf_args(app, {"subscribes": {"amcl_pose": "nav/amcl_pose"}}),
+                         ["--remap", "amcl_pose=nav/amcl_pose"])
+        self.assertEqual(leaf_args(app, {}), [])
+
+    def test_conflicting_rules(self):
+        app = App(make_package(self.dir / "p.juizapp", "planner_dwa"))
+        with self.assertRaisesRegex(StackError, "renames x to both"):
+            leaf_args(app, {"subscribes": {"x": "a"}, "publishes": {"x": "b"}})
+
+    def test_check_juiz(self):
+        # juiz run --help に --remap が出ない juiz は古い
+        fake = self.dir / "fake_juiz.py"
+        fake.write_text("import sys\nprint('Usage: juiz run [OPTIONS] <PACKAGE>' + (' --remap' if 'new' in sys.argv[0] else ''))\n")
+        new = self.dir / "new_juiz.py"
+        new.write_text(fake.read_text())
+        with self.assertRaisesRegex(StackError, "too old"):
+            check_juiz_with(fake)
+        check_juiz_with(new)
+
+
+def check_juiz_with(script: Path):
+    # check_juiz は [juiz, "run", "--help"] を走らせる。Python のスクリプトを juiz の代わりにする
+    orig = stack.subprocess.run
+
+    def run(cmd, **kw):
+        return orig([sys.executable, str(script)] + cmd[1:], **kw)
+
+    stack.subprocess.run = run
+    try:
+        check_juiz("juiz")
+    finally:
+        stack.subprocess.run = orig
 
 
 class AppTest(unittest.TestCase):
@@ -82,8 +100,8 @@ class AppTest(unittest.TestCase):
         app = App(p)
         self.assertEqual((app.name, app.version, app.entry, app.is_package), ("planner_dwa", "0.1.0", "app.conf", True))
         self.assertIsNone(app.read("leaves/planner_dwa.yaml"))
-        d = app.extract(self.dir / "out")
-        self.assertTrue((d / "web" / "index.html").exists())
+        self.assertEqual(app.read("web/index.html"), "x")
+        self.assertEqual(app.depends, [])
 
     def test_directory(self):
         # 開発中のリポジトリの app/(juizapp.yaml がある)
@@ -91,7 +109,7 @@ class AppTest(unittest.TestCase):
         self.assertEqual(app.name, "navigation_hub")
         self.assertFalse(app.is_package)
         self.assertIn("nav/amcl_pose", app.read("leaves/planner_dijkstra.yaml"))
-        self.assertEqual(app.extract(self.dir), app.path)
+        self.assertEqual(app.depends, ["localization_amcl"])
 
     def test_directory_without_manifest(self):
         (self.dir / "app.conf").write_text('"name": "mobile_sim"\n', encoding="utf-8")
@@ -108,12 +126,6 @@ class AppTest(unittest.TestCase):
             App(f)
         with self.assertRaisesRegex(StackError, "does not exist"):
             App(self.dir / "missing.juizapp")
-
-    def test_unsafe_entry(self):
-        p = make_package(self.dir / "a.juizapp", "planner_dwa", {"../evil": "x"})
-        with self.assertRaisesRegex(StackError, "unsafe entry"):
-            App(p).extract(self.dir / "out")
-        self.assertFalse((self.dir / "evil").exists())
 
     def test_collect(self):
         apps = collect(list(reversed(self.all_packages())))

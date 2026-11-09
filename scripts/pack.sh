@@ -3,7 +3,7 @@
 # 使い方: scripts/pack.sh [<プラグインの置き場>] [<出力先>]
 #   <プラグインの置き場> は <target>/<ライブラリ> の形のディレクトリ(既定 app/plugins)
 #   <出力先> の既定は dist/
-# app/leaves(planner_dijkstra・planner_dwa を葉にする置き換え)も入れる。葉の conf は scripts/make_leaf_conf.py で作る
+# app/leaves(planner_dijkstra・planner_dwa を葉にする置き換え)も入れる。navigation-manager stack が juiz run --remap の引数にする
 set -eu
 cd "$(dirname "$0")/.."
 plugins=$(cd "${1:-app/plugins}" && pwd)

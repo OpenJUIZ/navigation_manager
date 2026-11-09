@@ -7,7 +7,8 @@
 - subsystems を消す(mobile_sim は localization_amcl の下にあり、葉から直接つなぐと mobile_sim の master が 2 つになる)
 - subscribes・publishes のトピック名を navigation_manager が出し直す名前(nav/...)に替える
 - コンテナの引数を上書きする(planner_dwa の bridge: null など)
-navigation-manager stack は同じことを manager/navigation_manager/stack.py の make_leaf で行う(こちらは Docker の葉のイメージ用)。
+Docker の葉のイメージ(docker/leaf.Dockerfile)用。イメージには .juizapp が無いので juiz run --remap が使えない。
+navigation-manager stack は同じ表から juiz run --depend mobile_sim=none --remap 旧=新 で起動する(manager/navigation_manager/stack.py の leaf_args)。
 元の conf をそのまま使うので、アプリの版が上がってもこの表だけ見直せばよい。juiz -f で読めるよう JSON で書き出す。
 """
 import json

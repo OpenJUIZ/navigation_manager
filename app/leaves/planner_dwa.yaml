@@ -1,4 +1,5 @@
-# planner_dwa を navigation_hub の下で動かすときの置き換え(scripts/make_leaf_conf.py が使う)
+# planner_dwa を navigation_hub の下で動かすときの置き換え。
+# navigation-manager stack は subscribes・publishes を juiz run の --remap 旧=新 にする。Docker の葉のイメージは scripts/make_leaf_conf.py で conf を書き換える
 # センサー・推定姿勢は navigation_hub が nav/... で出し直したものを受ける。
 # 大域経路は Python の navigation_manager が dwa_set_path を HTTP で呼んで渡す(トピック path は使わない)。
 # 速度指令は cmd_vel_dwa に出し、navigation_hub が cmd_vel として mobile_sim に渡す
@@ -12,5 +13,6 @@ publishes:
   cmd_vel: cmd_vel_dwa
 container_args:
   dwa0:
-    # 画面用に AMCL・planner を HTTP で読みに行く仕組み。葉では使わない
+    # 画面用に AMCL・planner を HTTP で読みに行く仕組み。葉では使わない(make_leaf_conf.py だけが使う。
+    # juiz run ではコンテナの引数を上書きできないので、navigation-manager stack は環境変数 DWA_BRIDGE_AMCL_URL・DWA_BRIDGE_PLANNER_URL を空にして止める)
     bridge: null

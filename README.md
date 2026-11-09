@@ -37,12 +37,13 @@ navigation-manager stack mobile_sim-0.3.3.juizapp localization_amcl-0.1.0.juizap
 | --- | --- | --- |
 | 1 | mobile_sim(基礎、8000) | `juiz run` |
 | 2 | localization_amcl(8002) | `juiz run`(依存の mobile_sim に IPC でつなぐ) |
-| 3・4 | planner_dijkstra(8003)・planner_dwa(8004) | .juizapp を一時ディレクトリに展開し、navigation_hub の .juizapp の `leaves/` の置き換えで葉の conf を作って `juiz -f`(`juiz run` だと依存の mobile_sim を subsystem に足してしまい、mobile_sim の master が 2 つになるため) |
+| 3・4 | planner_dijkstra(8003)・planner_dwa(8004) | `juiz run --depend mobile_sim=none --remap 旧=新 ...`(依存の mobile_sim にはつながない。つなぐと mobile_sim の master が 2 つになるため。付け替えるトピック名は navigation_hub の .juizapp の `leaves/` から作る。planner_dwa の bridge は環境変数で止める) |
 | 5 | navigation_hub(8006) | `juiz run`(根は最後。先に起動すると葉につながらない) |
 | 6 | navigation_manager(8005) | 同じ Python で起動する |
 
 各アプリのログは一時ディレクトリ(`--logdir` で指定できる)に出す。前の演習の teleop_twist(8002)などが動いていると、ポートが使用中として起動しない。
-juiz は PATH にあるものを使う(環境変数 `JUIZ` で別のものを指定できる)。.juizapp の代わりに app.conf のあるディレクトリも渡せる(そのときは `juiz -f`)。
+juiz は PATH にあるものを使う(環境変数 `JUIZ` で別のものを指定できる)。.juizapp の代わりに app.conf のあるディレクトリも渡せる(planner_dijkstra・planner_dwa は `juiz pack` で一時的に .juizapp にしてから `juiz run`、ほかは `juiz -f`)。
+`juiz run` の `--remap`・`--depend 名前=none` を使うので、juiz 0.2.5 以降が要る。
 開発中は `python3 scripts/run_stack.py --mobile-sim <dir> --amcl <dir> --planner <dir> --dwa <dir> [--hub <dir>]` でも同じことができる
 (`--hub` を省くと `scripts/dev_plugin.sh` でビルドした app/ を使う)。
 

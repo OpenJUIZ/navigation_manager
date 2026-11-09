@@ -11,18 +11,22 @@ navigation_hub を根にした 1 本の木の形で、決まった順に起動�
 
 1. mobile_sim(基礎)        juiz run
 2. localization_amcl        juiz run(依存の mobile_sim に IPC でつなぐ)
-3. planner_dijkstra         .juizapp を展開し、葉の conf を作って juiz -f
-4. planner_dwa              同上
+3. planner_dijkstra         juiz run --depend mobile_sim=none --remap amcl_pose=nav/amcl_pose
+4. planner_dwa              juiz run --depend mobile_sim=none --remap odom=nav/odom ... --remap cmd_vel=cmd_vel_dwa
 5. navigation_hub           juiz run(依存の localization_amcl と、葉の 2 つに IPC でつなぐ)
 6. navigation_manager       この Python で動かす。各アプリを HTTP で呼ぶ
 
-planner_dijkstra・planner_dwa を juiz run にしないのは、juiz run が依存の mobile_sim を subsystem に足してしまい、
-mobile_sim の master が 2 つになってトピックが届かなくなるため(juiz#449)。葉の conf は navigation_hub の .juizapp に入っている
-leaves/<アプリ名>.yaml の置き換え(subsystems を消し、トピック名を nav/... に替える)で作る。
+葉(planner_dijkstra・planner_dwa)は依存の mobile_sim につながない(--depend mobile_sim=none)。つなぐと mobile_sim の master が
+2 つになってトピックが届かなくなるため(juiz#449)。代わりに navigation_hub が nav/... の名前で出し直すトピックを受ける。
+付け替えるトピック名(--remap)は navigation_hub の .juizapp に入っている leaves/<アプリ名>.yaml の subscribes・publishes から作る。
+planner_dwa の bridge(AMCL・planner を HTTP で読みに行く仕組み)は、環境変数 DWA_BRIDGE_AMCL_URL・DWA_BRIDGE_PLANNER_URL を
+空にして使わない(大域経路は navigation_manager が dwa_set_path で渡す)。
 根(navigation_hub)は葉より後に起動する(先に起動すると葉につながらない)。
+--remap と --depend 名前=none を使うので、juiz 0.2.5 以降が要る。
 
 .juizapp の代わりに、app.conf のあるディレクトリ(.juizapp を展開したものや、開発中のリポジトリの app/)も渡せる。
-そのときは juiz run の代わりに juiz -f で起動する。juiz は PATH にあるもの(pip install juiz-cli)を使う。環境変数 JUIZ で別のものを指定できる。
+葉のディレクトリは juiz pack で一時ディレクトリに .juizapp にしてから juiz run で、ほかは juiz -f で起動する。
+juiz は PATH にあるもの(pip install juiz-cli)を使う。環境変数 JUIZ で別のものを指定できる。
 Ctrl-C で、起動したものを逆の順に止める。Windows でも動く(子は別のプロセスグループで起動し、Ctrl+Break で止める)。
 """
 from __future__ import annotations
@@ -40,7 +44,7 @@ import time
 import urllib.parse
 import urllib.request
 import zipfile
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Dict, List, Optional
 
 try:
@@ -61,6 +65,12 @@ PORTS = {
 # 起動の順。葉が先、根(navigation_hub)が最後
 ORDER = ["mobile_sim", "localization_amcl", "planner_dijkstra", "planner_dwa", "navigation_hub"]
 LEAVES = ("planner_dijkstra", "planner_dwa")
+# 葉で使わない仕組みを止める環境変数(planner_dwa の bridge。空にすると読みに行かない)
+LEAF_ENV = {
+    "planner_dwa": {"DWA_BRIDGE_AMCL_URL": "", "DWA_BRIDGE_PLANNER_URL": ""},
+}
+# --remap と --depend 名前=none(juiz#452)が入った版
+JUIZ_REQUIRED = "0.2.5"
 RELEASES = {
     "mobile_sim": "https://github.com/OpenJUIZ/mobile_sim/releases",
     "localization_amcl": "https://github.com/OpenJUIZ/localization_amcl/releases",
@@ -98,6 +108,7 @@ class App:
             self.name = manifest["name"]
             self.version = str(manifest.get("version", ""))
             self.entry = manifest.get("entry", "app.conf")
+            self.depends = list((manifest.get("depends") or {}).keys())
         elif self.path.is_dir():
             m = self.path / "juizapp.yaml"
             manifest = _load_yaml(m.read_text(encoding="utf-8")) if m.exists() else {}
@@ -107,6 +118,7 @@ class App:
                 raise StackError(f"{path} has no {self.entry}")
             self.name = manifest.get("name") or _load_yaml(conf.read_text(encoding="utf-8"))["name"]
             self.version = str(manifest.get("version", "dev"))
+            self.depends = list((manifest.get("depends") or {}).keys())
         else:
             raise StackError(f"{path} does not exist")
 
@@ -123,19 +135,6 @@ class App:
                     return None
         p = self.path / rel
         return p.read_text(encoding="utf-8") if p.exists() else None
-
-    def extract(self, dest: Path) -> Path:
-        """.juizapp を dest に展開する(絶対パスや .. を含むエントリは拒否)。ディレクトリならそのまま返す"""
-        if not self.is_package:
-            return self.path
-        dest.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(self.path) as z:
-            for info in z.infolist():
-                p = PurePosixPath(info.filename.replace("\\", "/"))
-                if p.is_absolute() or ".." in p.parts or (p.parts and ":" in p.parts[0]):
-                    raise StackError(f"unsafe entry in {self.path.name}: {info.filename}")
-            z.extractall(dest)
-        return dest
 
 
 def collect(paths: List[str]) -> Dict[str, App]:
@@ -154,34 +153,41 @@ def collect(paths: List[str]) -> Dict[str, App]:
     return apps
 
 
-def make_leaf(conf: dict, rules: dict) -> dict:
-    """葉の conf を作る。subsystems を消し、トピック名とコンテナの引数を rules(leaves/<名前>.yaml)で置き換える"""
-    conf = json.loads(json.dumps(conf))
-    conf.pop("subsystems", None)
-    subs = rules.get("subscribes") or {}
-    pubs = rules.get("publishes") or {}
-    overrides = rules.get("container_args") or {}
-
-    def fix_process(p):
-        if "subscribes" in p:
-            p["subscribes"] = {arg: subs.get(t, t) for arg, t in p["subscribes"].items()}
-        if "publishes" in p:
-            p["publishes"] = [pubs.get(t, t) for t in p["publishes"]]
-
-    for c in conf.get("containers", []):
-        for k, v in (overrides.get(c.get("name")) or {}).items():
-            c[k] = v
-        for p in c.get("processes", []):
-            fix_process(p)
-    for p in conf.get("processes", []):
-        fix_process(p)
-    return conf
+def leaf_args(app: App, rules: dict) -> List[str]:
+    """葉を juiz run で起動するときの引数。依存にはつながず(--depend 名前=none)、
+    トピック名を rules(navigation_hub の leaves/<名前>.yaml)の subscribes・publishes で付け替える(--remap 旧=新)"""
+    args: List[str] = []
+    for dep in app.depends:
+        args += ["--depend", f"{dep}=none"]
+    remaps: Dict[str, str] = {}
+    for key in ("subscribes", "publishes"):
+        for old, new in (rules.get(key) or {}).items():
+            if remaps.get(old, new) != new:
+                raise StackError(f"leaves/{app.name}.yaml renames {old} to both {remaps[old]} and {new}")
+            remaps[old] = new
+    for old, new in remaps.items():
+        args += ["--remap", f"{old}={new}"]
+    return args
 
 
-def write_leaf_conf(app_dir: Path, entry: str, rules: dict) -> Path:
-    conf = _load_yaml((app_dir / entry).read_text(encoding="utf-8"))
-    out = app_dir / "leaf.conf"
-    out.write_text(json.dumps(make_leaf(conf, rules), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+def check_juiz(juiz: str) -> None:
+    """juiz run が --remap を知っているか(juiz 0.2.5 以降)"""
+    try:
+        out = subprocess.run([juiz, "run", "--help"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise StackError(f"cannot run {juiz}: {e}") from None
+    if "--remap" not in out.stdout + out.stderr:
+        raise StackError(f"{juiz} is too old: juiz {JUIZ_REQUIRED} or later is needed "
+                         f"(juiz run --remap). Update it with: pip install -U juiz-cli")
+
+
+def pack(juiz: str, app: App, work: Path, logdir: Path) -> Path:
+    """開発用: 葉のディレクトリ(プラグインを置いた app/ など)を juiz pack で work/ に .juizapp にする"""
+    out = work / f"{app.name}-{app.version}.juizapp"
+    with open(logdir / f"{app.name}.pack.log", "wb") as log:
+        r = subprocess.run([juiz, "pack", str(app.path), "-o", str(out)], stdout=log, stderr=subprocess.STDOUT)
+    if r.returncode != 0 or not out.exists():
+        raise StackError(f"juiz pack {app.path} failed (see {logdir / (app.name + '.pack.log')})")
     return out
 
 
@@ -345,6 +351,7 @@ def _interrupt(signum, frame):
 def run(a) -> int:
     apps = collect(a.packages)
     juiz = find_juiz()
+    check_juiz(juiz)
     busy = [f"{n} ({port})" for n, port in PORTS.items() if port_in_use(port)]
     if busy:
         raise StackError("these ports are already in use: " + ", ".join(busy)
@@ -372,9 +379,8 @@ def run(a) -> int:
         for n in ORDER:
             app = apps[n]
             if n in LEAVES:
-                d = app.extract(work / f"{app.name}-{app.version}")
-                conf = write_leaf_conf(d, app.entry, rules[n])
-                launch = ([juiz, "-f", str(conf), "-d"], d, {"JUIZ_APP_DIR": str(d)})
+                package = app.path if app.is_package else pack(juiz, app, work, logdir)
+                launch = ([juiz, "run", str(package)] + leaf_args(app, rules[n]), work, LEAF_ENV.get(n))
             elif app.is_package:
                 launch = ([juiz, "run", str(app.path)], work, None)
             else:
@@ -382,7 +388,15 @@ def run(a) -> int:
                 if n == "mobile_sim":
                     cmd += ["--ipc", "mobile_sim"]  # juiz run の基礎と同じく IPC 名を持たせる
                 launch = (cmd, app.path, {"JUIZ_APP_DIR": str(app.path)})
-            stack.start(n, *launch)
+            if n == "navigation_hub":
+                try:
+                    stack.start(n, *launch)
+                except StackError as e:
+                    # 起動直後に葉や localization_amcl の IPC の応答待ちが切れて終わることがある。1 度だけ起動し直す
+                    print(f"{e}; restarting navigation_hub", flush=True)
+                    stack.restart(n, *launch)
+            else:
+                stack.start(n, *launch)
         # 根が葉につなぎ損ねることがある(起動直後の IPC の応答待ちが切れるなど)。トピックが木を通って葉に届くまで待ち、
         # 届かなければ根を 1 度だけ起動し直す
         for attempt in range(2):
@@ -421,9 +435,8 @@ def run(a) -> int:
         stack.stop()
         if not a.logdir:
             print(f"logs are kept in {logdir}", flush=True)
-        for n in LEAVES:
-            if apps[n].is_package:
-                shutil.rmtree(work / f"{apps[n].name}-{apps[n].version}", ignore_errors=True)
+        for f in work.glob("*.juizapp"):
+            f.unlink()
     return code
 
 

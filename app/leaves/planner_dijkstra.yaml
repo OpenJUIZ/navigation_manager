@@ -1,4 +1,5 @@
-# planner_dijkstra を navigation_hub の下で動かすときの置き換え(scripts/make_leaf_conf.py が使う)
+# planner_dijkstra を navigation_hub の下で動かすときの置き換え。
+# navigation-manager stack は juiz run の --remap 旧=新 にする。Docker の葉のイメージは scripts/make_leaf_conf.py で conf を書き換える
 # 始点は navigation_hub が出し直す推定姿勢。ゴールは Python の navigation_manager が planner_set_goal を HTTP で呼ぶ
 subscribes:
   amcl_pose: nav/amcl_pose
