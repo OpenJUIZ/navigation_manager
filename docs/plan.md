@@ -32,6 +32,9 @@ navigation_manager (8005, Python) ── HTTP ──→ 4 つのアプリ
 - 根(navigation_hub)は 4 つの後に起動する。先に起動すると葉につながらず、起動に失敗する。navigation_manager は最後。
 - この起動は `navigation-manager stack <.juizapp…>`(v0.3.1、wheel に入っている)が全部行う。mobile_sim・localization_amcl・navigation_hub は `juiz run`、
   葉の 2 つは .juizapp を展開して navigation_hub の .juizapp の `leaves/` から葉の conf を作り `juiz -f`。
+  0.3.2 から(juiz 0.2.5、juiz#452)は葉も `juiz run --depend mobile_sim=none --remap ...` で起動する(展開も conf の書き換えも要らない)。
+  planner_dwa の bridge(conf の container_args で null にしていた)は、`leaves/planner_dwa.yaml` の `juiz_run.env` で環境変数を空にして切る。
+  2026-11-09 に juiz 0.2.5 で、mobile_sim 0.3.3・localization_amcl 0.1.1・planner_dijkstra 0.2.0・planner_dwa 0.1.0 とこの版の navigation_hub の一式がゴールに着くことを確かめた。
   navigation_hub を `juiz run` で起動しても木がつながり、ゴールに着くことを 2026-11-08 に公開版で確かめた。
   ただし根が起動直後に葉へつなぎ損ねることがある(CI で `receiving a response from ipc://localization_amcl failed` が出て、推定姿勢が planner に届かなかった)。
   そのため stack は根の起動後、planner_dijkstra の始点と planner_dwa の推定姿勢・障害物が埋まる(トピックが木を通って葉に届く)まで待ち、
