@@ -1,7 +1,7 @@
 # .juizapp のマニフェスト(juiz docs/spec/app-package.md §4)。languages・targets・rust・files は juiz pack が書き足す
 format: 1
 name: navigation_hub
-version: 0.3.1
+version: 0.3.2
 kind: app
 description: "Root of the 2D navigation stack: republishes topics between localization_amcl, planner_dijkstra and planner_dwa (used with the Python navigation_manager)"
 license: MIT OR Apache-2.0

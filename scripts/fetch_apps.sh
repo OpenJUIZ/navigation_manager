@@ -14,5 +14,5 @@ fetch() {
 }
 fetch mobile_sim mobile_sim "${MOBILE_SIM_VERSION:-0.3.3}"
 fetch localization_amcl localization_amcl "${AMCL_VERSION:-0.1.0}"
-fetch planner_dijkstra planner_dijkstra "${DIJKSTRA_VERSION:-0.1.0}"
+fetch planner_dijkstra planner_dijkstra "${DIJKSTRA_VERSION:-0.2.0}"
 fetch planner_dwa planner_dwa "${DWA_VERSION:-0.1.0}"
