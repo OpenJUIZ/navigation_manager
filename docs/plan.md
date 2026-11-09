@@ -31,7 +31,7 @@ navigation_manager (8005, Python) ── HTTP ──→ 4 つのアプリ
   `juiz run` は juizapp.yaml の `depends` を自動で subsystem に足すので、この 2 つは `juiz run --depend mobile_sim=none` で起動する
   (juiz 0.2.5 から。それまでは葉の conf を `scripts/make_leaf_conf.py` で作って `juiz -f` で起動していた。Docker の葉のイメージは今もそうする)。
 - 根(navigation_hub)は 4 つの後に起動する。先に起動すると葉につながらず、起動に失敗する。navigation_manager は最後。
-- この起動は `navigation-manager stack <.juizapp…>`(v0.3.1、wheel に入っている)が全部行う。mobile_sim・localization_amcl・navigation_hub は `juiz run`、
+- この起動は `navigation-manager stack <.juizapp…>`(wheel に入っている)が全部行う。mobile_sim・localization_amcl・navigation_hub は `juiz run`、
   葉の 2 つも `juiz run` で、navigation_hub の .juizapp の `leaves/` の subscribes・publishes を `--remap 旧=新` にして渡す
   (juiz#451、0.3.1 までは .juizapp を展開して葉の conf を作り `juiz -f`)。planner_dwa の bridge は `juiz run` では conf を上書きできないので、
   環境変数 DWA_BRIDGE_AMCL_URL・DWA_BRIDGE_PLANNER_URL を空にして止める(Docker の葉と同じ)。

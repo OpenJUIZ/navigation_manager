@@ -4,7 +4,7 @@
 #
 # Rust のプラグインは C ABI なので、juiz は pip の juiz-cli をそのまま使う(版は Cargo.toml の juiz_sdk と揃える)。
 # 各アプリのイメージは別のコンテナなので、app.conf の IPC の subsystem を HTTP に置き換えて動かす(docker/hub-entrypoint.py)。
-ARG JUIZ_VERSION=0.2.4
+ARG JUIZ_VERSION=0.2.5
 
 # プラグインをビルドしてテストする
 FROM rust:1-bookworm AS build

@@ -4,7 +4,7 @@
 ([mobile_sim](https://github.com/OpenJUIZ/mobile_sim)・[localization_amcl](https://github.com/OpenJUIZ/localization_amcl)・
 [planner_dijkstra](https://github.com/OpenJUIZ/planner_dijkstra)・[planner_dwa](https://github.com/OpenJUIZ/planner_dwa))をまとめて動かす。
 
-- **navigation_hub**(`app/`、juizapp、HTTP 8006): 木の根。葉どうしのトピックを別の名前で出し直す(juiz 0.2.4 では葉どうしの間で自動では中継されないため)
+- **navigation_hub**(`app/`、juizapp、HTTP 8006): 木の根。葉どうしのトピックを別の名前で出し直す(juiz 0.2.5 でも葉どうしの間で自動では中継されないため)
 - **navigation_manager**(`manager/`、Python、HTTP 8005): ゴール → 計画 → 追従 → 到着の状態機械と画面。各アプリを HTTP で呼ぶ
 
 ```
@@ -21,9 +21,9 @@ navigation_manager (Python) ── HTTP ──→ 4 つのアプリ
 公開版の .juizapp と pip だけで動く(ビルドも clone も要らない)。Linux・macOS・Windows で同じ。
 
 ```
-pip install juiz-cli==0.2.4 navigation-manager
+pip install juiz-cli==0.2.5 navigation-manager
 navigation-manager stack mobile_sim-0.3.3.juizapp localization_amcl-0.1.0.juizapp \
-    planner_dijkstra-0.1.0.juizapp planner_dwa-0.1.0.juizapp navigation_hub-0.3.1.juizapp
+    planner_dijkstra-0.1.0.juizapp planner_dwa-0.1.0.juizapp navigation_hub-0.4.0.juizapp
 ```
 
 .juizapp はそれぞれのリポジトリの Releases から取る
