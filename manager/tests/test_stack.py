@@ -1,11 +1,13 @@
 import json
+import os
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
 
 from navigation_manager import stack
-from navigation_manager.stack import App, StackError, collect, make_leaf, write_leaf_conf
+from navigation_manager.stack import (App, StackError, collect, juiz_version, leaf_run_command, make_leaf,
+                                      write_leaf_conf)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -49,6 +51,39 @@ class LeafTest(unittest.TestCase):
         self.assertEqual(p["subscribes"], {"odom": "nav/odom", "scan": "nav/scan", "x": "other"})
         self.assertEqual(p["publishes"], ["cmd_vel_dwa"])
         self.assertEqual(leaf["brokers"], conf["brokers"])
+
+    def test_leaf_run_command(self):
+        # juiz 0.2.5 以降: 葉の .juizapp は juiz run で、依存先につながず、トピック名は --remap で替える
+        import yaml
+        with tempfile.TemporaryDirectory() as d:
+            pkg = Path(d) / "planner_dijkstra.juizapp"
+            with zipfile.ZipFile(pkg, "w") as z:
+                z.writestr("juizapp.yaml", "format: 1\nname: planner_dijkstra\nversion: 0.2.0\nkind: app\n"
+                                           "depends:\n  mobile_sim: '>=0.3.1, <0.4'\n")
+            app = App(pkg)
+            self.assertEqual(app.depends, ["mobile_sim"])
+            rules = yaml.safe_load((ROOT / "app" / "leaves" / "planner_dijkstra.yaml").read_text(encoding="utf-8"))
+            self.assertEqual(leaf_run_command("juiz", app, rules),
+                             (["juiz", "run", str(app.path), "--depend", "mobile_sim=none",
+                               "--remap", "amcl_pose=nav/amcl_pose"], {}))
+            cmd, _ = leaf_run_command("juiz", app, {"subscribes": {"odom": "nav/odom"}, "publishes": {"cmd_vel": "x"}})
+            self.assertEqual(cmd[-4:], ["--remap", "odom=nav/odom", "--remap", "cmd_vel=x"])
+            # コンテナの引数の置き換えは --remap で表せない。juiz_run の env で代わりができるときだけ juiz run
+            self.assertIsNone(leaf_run_command("juiz", app, {"container_args": {"dwa0": {"bridge": None}}}))
+            dwa = yaml.safe_load((ROOT / "app" / "leaves" / "planner_dwa.yaml").read_text(encoding="utf-8"))
+            cmd, env = leaf_run_command("juiz", app, dwa)
+            self.assertIn("cmd_vel=cmd_vel_dwa", cmd)
+            self.assertIn("lidar_mount=nav/lidar_mount", cmd)
+            self.assertEqual(env, {"DWA_BRIDGE_AMCL_URL": "", "DWA_BRIDGE_PLANNER_URL": ""})
+
+    def test_juiz_version(self):
+        with tempfile.TemporaryDirectory() as d:
+            fake = Path(d) / "juiz"
+            fake.write_text("#!/bin/sh\necho juiz 0.2.5\n")
+            fake.chmod(0o755)
+            if os.name != "nt":
+                self.assertEqual(juiz_version(str(fake)), (0, 2, 5))
+            self.assertEqual(juiz_version(str(Path(d) / "none")), (0,))
 
     def test_write_leaf_conf(self):
         with tempfile.TemporaryDirectory() as d:

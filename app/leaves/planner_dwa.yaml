@@ -14,3 +14,9 @@ container_args:
   dwa0:
     # 画面用に AMCL・planner を HTTP で読みに行く仕組み。葉では使わない
     bridge: null
+# juiz 0.2.5 以降の navigation-manager stack は葉を juiz run --depend mobile_sim=none --remap ... で起動する。
+# そのときは conf を書き換えられないので、bridge は planner_dwa の環境変数を空にして切る(container_args と同じ意味)
+juiz_run:
+  env:
+    DWA_BRIDGE_AMCL_URL: ""
+    DWA_BRIDGE_PLANNER_URL: ""

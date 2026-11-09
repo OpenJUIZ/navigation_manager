@@ -1,7 +1,7 @@
 """ナビゲーション一式を .juizapp から起動する(navigation-manager stack)。
 
-    navigation-manager stack mobile_sim-0.3.3.juizapp localization_amcl-0.1.0.juizapp \\
-        planner_dijkstra-0.1.0.juizapp planner_dwa-0.1.0.juizapp navigation_hub-0.3.1.juizapp [--map map.yaml]
+    navigation-manager stack mobile_sim-0.3.3.juizapp localization_amcl-0.1.1.juizapp \\
+        planner_dijkstra-0.2.0.juizapp planner_dwa-0.1.0.juizapp navigation_hub-0.3.2.juizapp [--map map.yaml]
 
 navigation_hub を根にした 1 本の木の形で、決まった順に起動する。最後に navigation_manager(HTTP 8005、画面つき)を起動する。
 
@@ -11,18 +11,19 @@ navigation_hub を根にした 1 本の木の形で、決まった順に起動�
 
 1. mobile_sim(基礎)        juiz run
 2. localization_amcl        juiz run(依存の mobile_sim に IPC でつなぐ)
-3. planner_dijkstra         .juizapp を展開し、葉の conf を作って juiz -f
-4. planner_dwa              同上
+3. planner_dijkstra         juiz run --depend mobile_sim=none --remap amcl_pose=nav/amcl_pose
+4. planner_dwa              juiz run --depend mobile_sim=none --remap odom=nav/odom ...(bridge は環境変数を空にして切る)
 5. navigation_hub           juiz run(依存の localization_amcl と、葉の 2 つに IPC でつなぐ)
 6. navigation_manager       この Python で動かす。各アプリを HTTP で呼ぶ
 
-planner_dijkstra・planner_dwa を juiz run にしないのは、juiz run が依存の mobile_sim を subsystem に足してしまい、
-mobile_sim の master が 2 つになってトピックが届かなくなるため(juiz#449)。葉の conf は navigation_hub の .juizapp に入っている
-leaves/<アプリ名>.yaml の置き換え(subsystems を消し、トピック名を nav/... に替える)で作る。
+葉の 2 つは依存の mobile_sim に自分からつながない(--depend mobile_sim=none。つなぐと mobile_sim の master が 2 つになり
+トピックが届かなくなる、juiz#449)。トピック名の付け替えは navigation_hub の .juizapp に入っている leaves/<アプリ名>.yaml に従う。
+juiz 0.2.4 以前(--remap と --depend <名前>=none が無い、juiz#452)では、.juizapp を展開し、leaves/<アプリ名>.yaml の置き換え
+(subsystems を消し、トピック名を nav/... に替える)で葉の conf を作って juiz -f で起動する。
 根(navigation_hub)は葉より後に起動する(先に起動すると葉につながらない)。
 
 .juizapp の代わりに、app.conf のあるディレクトリ(.juizapp を展開したものや、開発中のリポジトリの app/)も渡せる。
-そのときは juiz run の代わりに juiz -f で起動する。juiz は PATH にあるもの(pip install juiz-cli)を使う。環境変数 JUIZ で別のものを指定できる。
+そのときは juiz run の代わりに juiz -f で起動する(葉は置き換えた conf で)。juiz は PATH にあるもの(pip install juiz-cli)を使う。環境変数 JUIZ で別のものを指定できる。
 Ctrl-C で、起動したものを逆の順に止める。Windows でも動く(子は別のプロセスグループで起動し、Ctrl+Break で止める)。
 """
 from __future__ import annotations
@@ -98,9 +99,11 @@ class App:
             self.name = manifest["name"]
             self.version = str(manifest.get("version", ""))
             self.entry = manifest.get("entry", "app.conf")
+            self.depends = sorted((manifest.get("depends") or {}).keys())
         elif self.path.is_dir():
             m = self.path / "juizapp.yaml"
             manifest = _load_yaml(m.read_text(encoding="utf-8")) if m.exists() else {}
+            self.depends = sorted((manifest.get("depends") or {}).keys())
             self.entry = manifest.get("entry", "app.conf")
             conf = self.path / self.entry
             if not conf.exists():
@@ -183,6 +186,41 @@ def write_leaf_conf(app_dir: Path, entry: str, rules: dict) -> Path:
     out = app_dir / "leaf.conf"
     out.write_text(json.dumps(make_leaf(conf, rules), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return out
+
+
+# juiz run --remap と --depend <名前>=none(juiz#452)が入った版
+JUIZ_RUN_REMAP = (0, 2, 5)
+
+
+def juiz_version(juiz: str) -> tuple:
+    """`juiz --version` の版。読めなければ (0,)"""
+    try:
+        out = subprocess.run([juiz, "--version"], capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return (0,)
+    for word in out.split():
+        parts = word.split(".")
+        if len(parts) >= 2 and all(x.isdigit() for x in parts[:3]):
+            return tuple(int(x) for x in parts[:3])
+    return (0,)
+
+
+def leaf_run_command(juiz: str, app: App, rules: dict) -> Optional[tuple]:
+    """葉の .juizapp を juiz run で起動するコマンドと環境変数(juiz 0.2.5 以降)。依存先には自分からつながず
+    (--depend <名前>=none)、トピック名は --remap で替える。コンテナの引数の置き換え(container_args)は --remap で表せないので、
+    rules に juiz_run(env で同じことをする)が無ければ None(展開して葉の conf を作る)"""
+    run = rules.get("juiz_run")
+    if rules.get("container_args") and run is None:
+        return None
+    cmd = [juiz, "run", str(app.path)]
+    for dep in app.depends:
+        cmd += ["--depend", f"{dep}=none"]
+    renames = dict(rules.get("subscribes") or {})
+    renames.update(rules.get("publishes") or {})
+    for old, new in renames.items():
+        cmd += ["--remap", f"{old}={new}"]
+    env = {k: "" if v is None else str(v) for k, v in ((run or {}).get("env") or {}).items()}
+    return cmd, env
 
 
 def find_juiz() -> str:
@@ -363,6 +401,7 @@ def run(a) -> int:
     print(f"juiz: {juiz}\nlogs: {logdir}", flush=True)
     for n in ORDER:
         print(f"  {apps[n]}", flush=True)
+    remap = juiz_version(juiz) >= JUIZ_RUN_REMAP
     stack = Stack(juiz, logdir)
     signal.signal(signal.SIGTERM, _interrupt)
     if WINDOWS and hasattr(signal, "SIGBREAK"):
@@ -371,7 +410,10 @@ def run(a) -> int:
     try:
         for n in ORDER:
             app = apps[n]
-            if n in LEAVES:
+            run_cmd = leaf_run_command(juiz, app, rules[n]) if n in LEAVES and app.is_package and remap else None
+            if run_cmd:
+                launch = (run_cmd[0], work, run_cmd[1])
+            elif n in LEAVES:
                 d = app.extract(work / f"{app.name}-{app.version}")
                 conf = write_leaf_conf(d, app.entry, rules[n])
                 launch = ([juiz, "-f", str(conf), "-d"], d, {"JUIZ_APP_DIR": str(d)})

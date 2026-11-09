@@ -4,7 +4,7 @@
 ([mobile_sim](https://github.com/OpenJUIZ/mobile_sim)・[localization_amcl](https://github.com/OpenJUIZ/localization_amcl)・
 [planner_dijkstra](https://github.com/OpenJUIZ/planner_dijkstra)・[planner_dwa](https://github.com/OpenJUIZ/planner_dwa))をまとめて動かす。
 
-- **navigation_hub**(`app/`、juizapp、HTTP 8006): 木の根。葉どうしのトピックを別の名前で出し直す(juiz 0.2.4 では葉どうしの間で自動では中継されないため)
+- **navigation_hub**(`app/`、juizapp、HTTP 8006): 木の根。葉どうしのトピックを別の名前で出し直す(juiz では葉どうしの間で自動では中継されないため、juiz#449)
 - **navigation_manager**(`manager/`、Python、HTTP 8005): ゴール → 計画 → 追従 → 到着の状態機械と画面。各アプリを HTTP で呼ぶ
 
 ```
@@ -21,9 +21,9 @@ navigation_manager (Python) ── HTTP ──→ 4 つのアプリ
 公開版の .juizapp と pip だけで動く(ビルドも clone も要らない)。Linux・macOS・Windows で同じ。
 
 ```
-pip install juiz-cli==0.2.4 navigation-manager
-navigation-manager stack mobile_sim-0.3.3.juizapp localization_amcl-0.1.0.juizapp \
-    planner_dijkstra-0.1.0.juizapp planner_dwa-0.1.0.juizapp navigation_hub-0.3.1.juizapp
+pip install juiz-cli==0.2.5 navigation-manager
+navigation-manager stack mobile_sim-0.3.3.juizapp localization_amcl-0.1.1.juizapp \
+    planner_dijkstra-0.2.0.juizapp planner_dwa-0.1.0.juizapp navigation_hub-0.3.2.juizapp
 ```
 
 .juizapp はそれぞれのリポジトリの Releases から取る
@@ -37,7 +37,7 @@ navigation-manager stack mobile_sim-0.3.3.juizapp localization_amcl-0.1.0.juizap
 | --- | --- | --- |
 | 1 | mobile_sim(基礎、8000) | `juiz run` |
 | 2 | localization_amcl(8002) | `juiz run`(依存の mobile_sim に IPC でつなぐ) |
-| 3・4 | planner_dijkstra(8003)・planner_dwa(8004) | .juizapp を一時ディレクトリに展開し、navigation_hub の .juizapp の `leaves/` の置き換えで葉の conf を作って `juiz -f`(`juiz run` だと依存の mobile_sim を subsystem に足してしまい、mobile_sim の master が 2 つになるため) |
+| 3・4 | planner_dijkstra(8003)・planner_dwa(8004) | `juiz run --depend mobile_sim=none --remap <旧>=<新> ...`(juiz 0.2.5 以降、juiz#452)。依存の mobile_sim には自分からつながず(つなぐと mobile_sim の master が 2 つになる)、トピック名は navigation_hub の .juizapp の `leaves/` に従って付け替える。planner_dwa の bridge は環境変数 `DWA_BRIDGE_AMCL_URL`・`DWA_BRIDGE_PLANNER_URL` を空にして切る。juiz 0.2.4 以前では .juizapp を一時ディレクトリに展開し、`leaves/` の置き換えで葉の conf を作って `juiz -f` |
 | 5 | navigation_hub(8006) | `juiz run`(根は最後。先に起動すると葉につながらない) |
 | 6 | navigation_manager(8005) | 同じ Python で起動する |
 

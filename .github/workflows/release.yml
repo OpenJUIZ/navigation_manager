@@ -21,8 +21,8 @@ env:
   CARGO_TERM_COLOR: always
   # 一式の確かめ(navigation-manager stack --test)に使う公開版
   MOBILE_SIM_VERSION: "0.3.3"
-  AMCL_VERSION: "0.1.0"
-  DIJKSTRA_VERSION: "0.1.0"
+  AMCL_VERSION: "0.1.1"
+  DIJKSTRA_VERSION: "0.2.0"
   DWA_VERSION: "0.1.0"
 
 jobs:
