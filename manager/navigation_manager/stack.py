@@ -304,6 +304,14 @@ class Stack:
             time.sleep(0.2)
         self.start(name, *launch)
 
+    def start_or_restart(self, name: str, *launch):
+        """起動し、起動直後に終わった・応答しなかったときは 1 度だけ起動し直す"""
+        try:
+            self.start(name, *launch)
+        except StackError as e:
+            print(f"{e}; restarting {name}", flush=True)
+            self.restart(name, *launch)
+
     def check(self):
         for name, p in self.procs:
             if p.poll() is not None:
@@ -424,7 +432,11 @@ def run(a) -> int:
                 if n == "mobile_sim":
                     cmd += ["--ipc", "mobile_sim"]  # juiz run の基礎と同じく IPC 名を持たせる
                 launch = (cmd, app.path, {"JUIZ_APP_DIR": str(app.path)})
-            stack.start(n, *launch)
+            if n == "navigation_hub":
+                # 起動直後に葉や localization_amcl の IPC の応答待ちが切れて終わることがある
+                stack.start_or_restart(n, *launch)
+            else:
+                stack.start(n, *launch)
         # 根が葉につなぎ損ねることがある(起動直後の IPC の応答待ちが切れるなど)。トピックが木を通って葉に届くまで待ち、
         # 届かなければ根を 1 度だけ起動し直す
         for attempt in range(2):

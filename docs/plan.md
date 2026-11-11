@@ -39,6 +39,7 @@ navigation_manager (8005, Python) ── HTTP ──→ 4 つのアプリ
   ただし根が起動直後に葉へつなぎ損ねることがある(CI で `receiving a response from ipc://localization_amcl failed` が出て、推定姿勢が planner に届かなかった)。
   そのため stack は根の起動後、planner_dijkstra の始点と planner_dwa の推定姿勢・障害物が埋まる(トピックが木を通って葉に届く)まで待ち、
   20 秒で届かなければ根を 1 度だけ起動し直す。
+  根が起動直後に終わる・応答しないとき(同じく IPC の応答待ちが切れる)も、根を 1 度だけ起動し直す(navigation_manager#11)。
 
 ## 2. M0 で確かめたこと(experiments/m0_topic_relay)
 
