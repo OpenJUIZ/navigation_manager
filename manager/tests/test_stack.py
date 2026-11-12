@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 from navigation_manager import stack
 from navigation_manager.stack import (App, StackError, collect, juiz_version, leaf_run_command, make_leaf,
@@ -166,3 +167,26 @@ class AppTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StartOrRestartTest(unittest.TestCase):
+    def setUp(self):
+        self.s = stack.Stack("juiz", Path(tempfile.mkdtemp()))
+
+    def test_started_first_time(self):
+        with mock.patch.object(self.s, "start") as start, mock.patch.object(self.s, "restart") as restart:
+            self.s.start_or_restart("navigation_hub", ["juiz"], Path("."), None)
+        start.assert_called_once_with("navigation_hub", ["juiz"], Path("."), None)
+        restart.assert_not_called()
+
+    def test_restarts_once(self):
+        with mock.patch.object(self.s, "start", side_effect=StackError("navigation_hub exited (code 1)")), \
+                mock.patch.object(self.s, "restart") as restart:
+            self.s.start_or_restart("navigation_hub", ["juiz"], Path("."), None)
+        restart.assert_called_once_with("navigation_hub", ["juiz"], Path("."), None)
+
+    def test_second_failure_raises(self):
+        with mock.patch.object(self.s, "start", side_effect=StackError("navigation_hub exited (code 1)")), \
+                mock.patch.object(self.s, "restart", side_effect=StackError("navigation_hub exited (code 1)")):
+            with self.assertRaises(StackError):
+                self.s.start_or_restart("navigation_hub", ["juiz"], Path("."), None)
