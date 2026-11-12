@@ -5,12 +5,12 @@ members = ["crates/navigation_hub"]
 exclude = ["experiments"]
 
 [workspace.package]
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/OpenJUIZ/navigation_manager"
-rust-version = "1.88"
+rust-version = "1.89"
 
 [workspace.dependencies]
 # Rust のプラグインは、読み込む juiz と juiz_sdk の版が完全に一致しないと動かない(juiz の docs/spec/app-package.md §4.3)
-juiz_sdk = "=0.2.5"
+juiz_sdk = "=0.2.7"
