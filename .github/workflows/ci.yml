@@ -142,7 +142,7 @@ jobs:
           - map: slam
             args: "--map manager/tests/data/slam_map/map.yaml --goal 3.0,-1.5,0.0"
     env:
-      AMCL_VERSION: "0.1.1"
+      AMCL_VERSION: "0.1.2"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4

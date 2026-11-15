@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "navigation-manager"
-version = "0.3.2"
+version = "0.3.3"
 description = "Navigation manager for the JUIZ 2D navigation stack: goal -> plan -> follow -> arrive over HTTP, with a browser UI"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
