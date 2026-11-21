@@ -12,7 +12,7 @@ fetch() {
   echo "$url"
   curl -fsSL --retry 3 -o "$out/$name-$version.juizapp" "$url"
 }
-fetch mobile_sim mobile_sim "${MOBILE_SIM_VERSION:-0.3.6}"
-fetch localization_amcl localization_amcl "${AMCL_VERSION:-0.1.4}"
-fetch planner_dijkstra planner_dijkstra "${DIJKSTRA_VERSION:-0.2.3}"
-fetch planner_dwa planner_dwa "${DWA_VERSION:-0.1.3}"
+fetch mobile_sim mobile_sim "${MOBILE_SIM_VERSION:-0.3.7}"
+fetch localization_amcl localization_amcl "${AMCL_VERSION:-0.1.5}"
+fetch planner_dijkstra planner_dijkstra "${DIJKSTRA_VERSION:-0.2.4}"
+fetch planner_dwa planner_dwa "${DWA_VERSION:-0.1.4}"

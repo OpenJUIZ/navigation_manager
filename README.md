@@ -21,9 +21,9 @@ navigation_manager (Python) ── HTTP ──→ 4 つのアプリ
 公開版の .juizapp と pip だけで動く(ビルドも clone も要らない)。Linux・macOS・Windows で同じ。
 
 ```
-pip install juiz-cli==0.3.0 navigation-manager
-navigation-manager stack mobile_sim-0.3.6.juizapp localization_amcl-0.1.4.juizapp \
-    planner_dijkstra-0.2.3.juizapp planner_dwa-0.1.3.juizapp navigation_hub-0.3.5.juizapp
+pip install juiz-cli==0.3.2 navigation-manager
+navigation-manager stack mobile_sim-0.3.7.juizapp localization_amcl-0.1.5.juizapp \
+    planner_dijkstra-0.2.4.juizapp planner_dwa-0.1.4.juizapp navigation_hub-0.3.6.juizapp
 ```
 
 .juizapp はそれぞれのリポジトリの Releases から取る
