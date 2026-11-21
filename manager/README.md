@@ -11,9 +11,9 @@ It runs the goal → plan → follow → arrive state machine over HTTP and serv
 Download the five `.juizapp` packages from the Releases of each repository, then:
 
 ```
-pip install juiz-cli==0.3.0 navigation-manager
-navigation-manager stack mobile_sim-0.3.6.juizapp localization_amcl-0.1.4.juizapp \
-    planner_dijkstra-0.2.3.juizapp planner_dwa-0.1.3.juizapp navigation_hub-0.3.5.juizapp [--map map.yaml]
+pip install juiz-cli==0.3.2 navigation-manager
+navigation-manager stack mobile_sim-0.3.7.juizapp localization_amcl-0.1.5.juizapp \
+    planner_dijkstra-0.2.4.juizapp planner_dwa-0.1.4.juizapp navigation_hub-0.3.6.juizapp [--map map.yaml]
 ```
 
 `navigation-manager stack` starts the apps in the order the stack needs (navigation_hub as the root of one tree),
